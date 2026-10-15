@@ -400,11 +400,11 @@ export function createWorld() {
 
   // A real, open wooden fishing skiff: curved hull, seats and one seated figure.
   const boat=new THREE.Group();boat.position.set(17,.10,-30);boat.rotation.y=-.24;boat.name='孤舟';
-  const hullMaterial=inkMaterial('#a3a59a',.43,.14);
-  const hullInsideMaterial=inkMaterial('#92998f',.30,0);
-  const rimMaterial=inkMaterial('#858d82',.31,.12);
-  const cloakMaterial=inkMaterial('#969d90',.33,.05);
-  const hatMaterial=inkMaterial('#c4c6b7',.34,.35);
+  const hullMaterial=inkMaterial('#a3a4a2',.43,.14);
+  const hullInsideMaterial=inkMaterial('#929492',.30,0);
+  const rimMaterial=inkMaterial('#858886',.31,.12);
+  const cloakMaterial=inkMaterial('#969896',.33,.05);
+  const hatMaterial=inkMaterial('#c4c5c2',.34,.35);
   const hullPos=[],hullIdx=[];
   const rings=24,sideCount=12;
   for(let j=0;j<=rings;j++){
