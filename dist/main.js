@@ -279,7 +279,7 @@ function init() {
     renderer.toneMapping = THREE.NoToneMapping;
     world = createWorld();
     wash = new InkWash(renderer);
-    camera = new THREE.PerspectiveCamera(61, 1, .1, 720); camera.rotation.order = 'YXZ';
+    camera = new THREE.PerspectiveCamera(56, 1, .1, 720); camera.rotation.order = 'YXZ';
     Object.assign(player, world.spawn); player.targetYaw = player.yaw; player.targetPitch = player.pitch;
     player.y = world.heightAt(player.x, player.z) + 1.65;
     world.scene.add(effectRoot);
@@ -297,7 +297,7 @@ function init() {
         updateEffects(dt); weather(dt);
       }
       camera.position.set(player.x, player.y, player.z); camera.rotation.set(player.pitch, player.yaw, 0);
-      const fov = state.time < focusUntil ? 48 : 61;
+      const fov = state.time < focusUntil ? 44 : 56;
       camera.fov = THREE.MathUtils.damp(camera.fov, fov, 3, dt); camera.updateProjectionMatrix();
       if (isPlaying() && (interactionTick += dt) > .15) { detectInteraction(); interactionTick = 0; }
       wash.render(world.scene, camera, state.time);
