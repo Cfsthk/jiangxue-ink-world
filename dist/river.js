@@ -1,4 +1,5 @@
 import * as THREE from './vendor/three.module.js';
+import { farBankGLSL } from './landscape-shape.js?v=1.0.0';
 
 /**
  * Sparse, gently advecting ink ripples. The water plane is never displaced, so
@@ -132,7 +133,7 @@ export function createRiverMaterial() {
 
         // Match the world's low opposite bank. Broken mist dissolves the
         // otherwise ruler-straight join between the water and snowy land.
-        float oppositeBank=67.0+sin(p.y*0.019)*6.0+sin(p.y*0.041)*2.5;
+        float oppositeBank=${farBankGLSL};
         float shoreDistance=oppositeBank-p.x;
         float mistWidth=8.0+softNoise(p*vec2(0.08,0.13))*6.0;
         float shoreMist=1.0-smoothstep(0.0,mistWidth,shoreDistance);
@@ -148,6 +149,12 @@ export function createRiverMaterial() {
         westEdgeMist*=0.72+0.28*softNoise(vec2(p.y*0.095,p.x*0.16)+vec2(31.0,47.0));
         color=mix(color,uShoreMist,westEdgeMist*0.94);
 
+        // Dissolve the finite, unreachable outer plane into the sky, instead of
+        // leaving a blue triangular cut at the far west/end of the painted world.
+        // Opaque paper-grain coverage keeps the boat/reflection depth order intact.
+        float westCoverage=smoothstep(0.0,18.0,westEdgeDistance+edgeBreak);
+        float endCoverage=1.0-smoothstep(255.0,309.0,abs(p.y));
+        if(hash21(floor(gl_FragCoord.xy))>westCoverage*endCoverage)discard;
         gl_FragColor = vec4(color, 1.0);
         #include <colorspace_fragment>
       }

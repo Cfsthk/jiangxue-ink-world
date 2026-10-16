@@ -1,108 +1,95 @@
 import * as THREE from './vendor/three.module.js';
 
-// These materials belong only to the travelling horse and cart. The landscape,
-// luggage and fishing boat keep their own pigment, lighting and texture scale.
+// Image pigments stay attached to the real curved surface as the player walks around it.
 const vertexShader=`
   uniform float uBleed;
-  varying vec3 vLocal;
-  varying vec3 vWorld;
-  varying vec3 vEye;
-  varying vec3 vNormal;
-  varying vec2 vUv;
+  varying vec3 vLocal; varying vec3 vObjectNormal; varying vec3 vEye; varying vec3 vNormal; varying vec2 vUv;
   void main(){
-    vLocal=position;vUv=uv;
-    vec3 p=position+normal*uBleed;
-    vec4 world=modelMatrix*vec4(p,1.);
-    vec4 view=modelViewMatrix*vec4(p,1.);
-    vWorld=world.xyz;vEye=-view.xyz;vNormal=normalize(normalMatrix*normal);
+    vLocal=position; vObjectNormal=normal; vUv=uv;
+    vec4 view=modelViewMatrix*vec4(position+normal*uBleed,1.);
+    vEye=-view.xyz; vNormal=normalize(normalMatrix*normal);
     gl_Position=projectionMatrix*view;
   }
 `;
 const fragmentShader=`
-  uniform sampler2D uAtlas;
-  uniform vec3 uInk;
-  uniform float uBand;
-  uniform float uDensity;
-  uniform float uBleed;
-  varying vec3 vLocal;
-  varying vec3 vWorld;
-  varying vec3 vEye;
-  varying vec3 vNormal;
-  varying vec2 vUv;
+  uniform sampler2D uAtlas; uniform vec2 uCell; uniform vec3 uInk;
+  uniform float uDensity; uniform float uBleed; uniform float uMode; uniform vec2 uScale;
+  varying vec3 vLocal; varying vec3 vObjectNormal; varying vec3 vEye; varying vec3 vNormal; varying vec2 vUv;
   float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
-  float noise(vec3 p){
-    vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
-    return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
-  }
+  float noise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
   float pigment(vec2 uv){
-    // Inset each third so mip filtering cannot borrow a neighbouring material.
-    vec2 tile=fract(uv);
-    return 1.-dot(texture2D(uAtlas,vec2(.005+tile.x*.99,(uBand+.025+tile.y*.95)/3.)).rgb,vec3(.299,.587,.114));
+    // Insets prevent adjacent atlas cells leaking into paper, cloth or coat at a distance.
+    vec2 tile=.035+fract(uv)*.93;
+    return 1.-dot(texture2D(uAtlas,(uCell+tile)/vec2(3.,2.)).rgb,vec3(.299,.587,.114));
   }
   void main(){
-    vec3 n=normalize(vNormal),p=vLocal;
-    float wash=noise(p*vec3(1.8,2.3,1.4));
-    vec2 uv=vUv;
-    uv.x+=sin(uv.y*6.4+p.z*.6)*.022;
-    float paint=pigment(uv);
-    float bloom=pigment(uv*.47+vec2(.31,.19));
-    float fibres=noise(p*vec3(93.,67.,83.));
-    float facing=abs(dot(n,normalize(vEye)));
-    float edge=1.-smoothstep(.025,.32,facing);
-    float dry=smoothstep(.27,.76,noise(p*36.));
-    float stroke=smoothstep(.31,.68,noise(p*vec3(9.,3.,12.)));
-    // Almost-flat washes and paper gaps, rather than solid diffuse shading.
-    float density=uDensity*(.32+paint*.76+bloom*.22+(wash-.5)*.12);
-    density+=edge*stroke*.10;
-    vec3 color=mix(vec3(.90,.909,.894),uInk,clamp(density,0.,.94));
-    color-=vec3((fibres-.5)*.025);
-    color=mix(color,vec3(.90,.909,.894),smoothstep(.64,.86,wash)*.13);
-    float alpha=smoothstep(.006,.125+(dry-.5)*.07,facing);
-    if(uBleed>.001){
-      alpha=(1.-smoothstep(.03,.32,facing))*(.045+dry*.11);
-      color=mix(color,vec3(.86,.875,.862),.45);
+    vec3 n=normalize(vNormal),p=vLocal;vec2 uv=vUv*uScale;
+    uv.x+=sin(uv.y*5.2+p.z*.4)*.015;
+    float paint=pigment(uv),wash=noise(p*vec3(3.1,2.6,2.2));
+    if(uMode>.5&&uMode<1.5){
+      vec3 w=pow(abs(normalize(vObjectNormal)),vec3(3.));w/=w.x+w.y+w.z;
+      paint=pigment(p.zy*.51+vec2(.14,.16))*w.x+pigment(p.xz*.51+vec2(.28,.35))*w.y+pigment(p.xy*.51+vec2(.21,.11))*w.z;
     }
-    float fog=1.-exp(-dot(vEye,vEye)*.0024*.0024);
-    color=mix(color,vec3(.929,.929,.922),fog);
-    if(alpha<.008)discard;
+    float facing=abs(dot(n,normalize(vEye))),dry=noise(p*47.),edge=1.-smoothstep(.025,.24,facing);
+    float density=clamp(uDensity*(.40+paint*.70+(wash-.5)*.12)+edge*.045,0.,.96);
+    vec3 paper=vec3(.916,.923,.913),color=mix(paper,uInk,density);
+    color-=vec3((noise(p*vec3(115.,83.,97.))-.5)*.016);
+    if(uCell.y<.5&&uCell.x>.5&&uCell.x<1.5){float rim=1.-smoothstep(.002,.065,min(min(vUv.x,1.-vUv.x),min(vUv.y,1.-vUv.y)));color*=1.-rim*(.045+dry*.055);}
+    color*=.982+.018*max(0.,dot(n,normalize(vec3(-.4,.8,.2))));
+    float alpha=smoothstep(.002,.052+(dry-.5)*.022,facing);
+    if(uMode>1.5){
+      // Dry-brush gaps are actual transparency, rather than white rectangular feathers.
+      float feather=smoothstep(0.,.13,vUv.x)*(1.-smoothstep(.85,1.,vUv.x));
+      alpha=feather*smoothstep(.11,.69,paint)*(.65+.35*wash);
+      color=mix(vec3(.48,.52,.50),uInk,.48+paint*.45);
+    }
+    if(uBleed>.001){alpha=(1.-smoothstep(.015,.21,facing))*(.027+dry*.07);color=mix(color,paper,.22);}
+    color=mix(color,vec3(.929,.929,.922),1.-exp(-dot(vEye,vEye)*.0024*.0024));
+    if(alpha<.012)discard;
     gl_FragColor=vec4(color,alpha);
     #include <colorspace_fragment>
   }
 `;
-
-export function createRigPaint(){
-  const white=new THREE.DataTexture(new Uint8Array([245,245,243,255]),1,1);
-  white.colorSpace=THREE.SRGBColorSpace;white.needsUpdate=true;
-  const atlas={value:white};
-  function material(name,band,ink,density,side=THREE.FrontSide){
-    const m=new THREE.ShaderMaterial({name,vertexShader,fragmentShader,
-      uniforms:{uAtlas:atlas,uBand:{value:band},uInk:{value:new THREE.Color(ink)},uDensity:{value:density},uBleed:{value:0}},
-      side,transparent:true,depthWrite:true,toneMapped:false,
+let sharedAtlas,sharedReady;
+function atlasSource(){
+  if(!sharedAtlas){
+    const blank=new THREE.DataTexture(new Uint8Array([235,235,233,255]),1,1);blank.colorSpace=THREE.SRGBColorSpace;blank.needsUpdate=true;
+    sharedAtlas={value:blank};
+    sharedReady=new THREE.TextureLoader().loadAsync(new URL('./assets/brush-surface-atlas-v2.png',import.meta.url).href).then(texture=>{
+      texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=8;texture.wrapS=texture.wrapT=THREE.ClampToEdgeWrapping;sharedAtlas.value=texture;
     });
-    m.userData.rigPaint=true;return m;
   }
-  const materials={
-    horse:material('馬毛・飛白與淡墨',2,'#6e7b74',.72),
-    wood:material('舊木・斷筆木紋',1,'#56655e',.88),
-    dark:material('鬃毛與繫帶・濃淡墨線',2,'#293b33',1.27),
-    cloth:material('車篷・薄墨布紋',0,'#a5afa3',.44,THREE.DoubleSide),
-  };
-  const ready=new THREE.TextureLoader().loadAsync(new URL('./assets/rig-brush-atlas-v1.png',import.meta.url).href).then(texture=>{
-    texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=8;
-    texture.wrapS=texture.wrapT=THREE.ClampToEdgeWrapping;atlas.value=texture;
-  });
-  return {...materials,ready};
+  return {atlas:sharedAtlas,ready:sharedReady};
 }
-
-// One translucent wash outside each merged surface softens the silhouette.
-// Its pigment is object-anchored; it never sparkles when the camera moves.
-export function addRigBleed(group){
-  const cores=[];group.traverse(o=>{if(o.isMesh&&o.material.userData.rigPaint)cores.push(o);});
-  const haloMaterials=new Map();
-  for(const core of cores){
-    let material=haloMaterials.get(core.material);
-    if(!material){material=core.material.clone();material.uniforms.uAtlas=core.material.uniforms.uAtlas;material.uniforms.uBleed.value=.018;material.depthWrite=false;material.side=THREE.FrontSide;haloMaterials.set(core.material,material);}
-    const halo=new THREE.Mesh(core.geometry,material);halo.name='邊緣淡墨暈';halo.renderOrder=-1;
-    core.add(halo);
+export function createRigPaint(){
+  const {atlas,ready}=atlasSource();
+  function material(name,cell,ink,density,mode=0,scale=[1,1],side=THREE.FrontSide){
+    const m=new THREE.ShaderMaterial({name,vertexShader,fragmentShader,uniforms:{uAtlas:atlas,uCell:{value:new THREE.Vector2(...cell)},uInk:{value:new THREE.Color(ink)},uDensity:{value:density},uBleed:{value:0},uMode:{value:mode},uScale:{value:new THREE.Vector2(...scale)}},side,transparent:true,depthWrite:true,toneMapped:false});
+    m.userData.rigPaint=true;m.userData.mapping=mode===1?'triplanar':'uv';m.userData.atlasCell=cell;return m;
   }
+  return {
+    horse:material('馬毛・淡墨暈染',[0,1],'#65756e',.72,1),
+    wood:material('舊木・順板木紋',[1,1],'#53625b',.95),
+    dark:material('繫帶與馬蹄・斷墨',[0,0],'#293931',1.23,1),
+    cloth:material('車篷與卷筒・亞麻纖維',[2,1],'#929b90',.47,0,[1.3,1.1],THREE.DoubleSide),
+    hat:material('官帽・折布墨紋',[0,0],'#34423b',.88,0,[1,1],THREE.DoubleSide),
+    paper:material('文書・宣紙纖維',[1,0],'#9aa799',.38,0,[1,1],THREE.DoubleSide),
+    stroke:material('墨鳥與鬃毛・飛白',[2,0],'#253b31',1.1,2,[1,1],THREE.DoubleSide),
+    ready,
+  };
+}
+export function addRigBleed(group,amount=.012){
+  const cores=[];group.traverse(o=>{if(o.isMesh&&o.material.userData.rigPaint&&!o.userData.rigBleed&&!o.userData.hasBleed&&o.material.uniforms.uMode.value<1.5)cores.push(o);});
+  const materials=new Map();
+  for(const core of cores){
+    let material=materials.get(core.material);
+    if(!material){material=core.material.clone();material.uniforms.uAtlas=core.material.uniforms.uAtlas;material.uniforms.uBleed.value=amount;material.depthWrite=false;material.side=THREE.FrontSide;materials.set(core.material,material);}
+    const halo=new THREE.Mesh(core.geometry,material);halo.name='細薄暈墨邊';halo.userData.rigBleed=true;halo.renderOrder=-1;core.userData.hasBleed=true;core.add(halo);
+  }
+}
+export function paintDiagnostics(group){
+  let meshes=0,triangles=0,painted=0,texturesLoaded=true;const mappings=new Set();
+  group.traverse(o=>{if(!o.isMesh||o.userData.rigBleed)return;meshes++;triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;
+    if(o.material.userData.rigPaint){painted++;mappings.add(o.material.userData.mapping);texturesLoaded&&=!!o.material.uniforms.uAtlas.value.image?.width&&o.material.uniforms.uAtlas.value.image.width>1;}
+  });return {meshes,triangles,painted,texturesLoaded,mappings:[...mappings]};
 }

@@ -1,9 +1,7 @@
 // Historical milestones are factual; the lost luggage and farewell letter are teaching fiction.
 export const LUGGAGE = Object.freeze([
-  { id:'books', name:'布書袋', place:'松林岔路・低矮灌木旁', action:'撥開枝葉，解開布帶', duration:1.8, x:-36,z:24,
-    title:'讀書，走上仕途',year:'793 年・考取進士',text:'柳宗元年輕時努力讀書，793 年考取進士，後來開始做官。他希望自己的學問，能用來做一些有益的事。', detail:'一袋書，裝着他年輕時的志向。' },
   { id:'hat', name:'官帽', place:'山頂附近・掛雪的枯樹', action:'搖動樹幹', duration:2.1, x:-49,z:-13,
-    title:'他曾在朝廷任職',year:'離京以前・在朝為官',text:'柳宗元曾在京城做官，後來擔任禮部員外郎。他和其他官員商議國事，原本有機會施展自己的抱負。', detail:'這頂帽子，讓人想起他在京城任職的日子。' },
+    title:'曾在朝廷任職',year:'離京以前・在朝為官',text:'柳宗元曾在京城做官，後來擔任禮部員外郎。他和其他官員商議國事，原本有機會施展自己的抱負。', detail:'這頂帽子，讓人想起他在京城任職的日子。' },
   { id:'scroll', name:'改革文稿卷筒', place:'山背曲徑・兩石之間', action:'挪開小石', duration:1.7, x:-35,z:-42,
     title:'與同伴一起推動改革',year:'805 年・永貞革新',text:'柳宗元和王叔文等人參與政治改革，希望改善朝政。他有一起商議、一起做事的同伴，也有想實現的理想。', detail:'筒中的文稿是教學示意，帶出他參與改革的往事。' },
   { id:'decree', name:'貶官文書', place:'西側林徑・薄雪下的繫帶', action:'挖開積雪', duration:2.2, x:-61,z:20,
@@ -18,6 +16,7 @@ export const LUGGAGE = Object.freeze([
 export function createJourneyState() {
   const statuses = Object.fromEntries(LUGGAGE.map(item => [item.id,'covered']));
   let carried = null;
+  const storiesRead=new Set();
   const count = () => Object.values(statuses).filter(s=>s==='returned').length;
   const activeId = () => LUGGAGE.find(i=>statuses[i.id]!=='returned')?.id ?? null;
   const unlocked = id => Object.hasOwn(statuses,id) && (id===activeId() || statuses[id]==='returned');
@@ -38,13 +37,13 @@ export function createJourneyState() {
     },
     pickup(id) {
       if(carried || !unlocked(id) || statuses[id]!=='ready')return false;
-      statuses[id]='carried';carried=id;return true;
+      statuses[id]='carried';carried=id;storiesRead.add(id);return true;
     },
     deposit() {
       if(!carried)return null;
       const id=carried;statuses[id]='returned';carried=null;return id;
     },
-    reset() { carried=null;for(const item of LUGGAGE)statuses[item.id]='covered'; },
-    snapshot() { return {carried,activeId:activeId(),returned:count(),complete:count()===LUGGAGE.length,letterUnlocked:unlocked('farewell'),items:LUGGAGE.map(i=>({id:i.id,name:i.name,status:statuses[i.id],unlocked:unlocked(i.id),x:i.x,z:i.z}))}; },
+    reset() { carried=null;storiesRead.clear();for(const item of LUGGAGE)statuses[item.id]='covered'; },
+    snapshot() { return {carried,activeId:activeId(),returned:count(),complete:count()===LUGGAGE.length,letterUnlocked:unlocked('farewell'),storiesRead:[...storiesRead],items:LUGGAGE.map(i=>({id:i.id,name:i.name,status:statuses[i.id],unlocked:unlocked(i.id),x:i.x,z:i.z}))}; },
   };
 }

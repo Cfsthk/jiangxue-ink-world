@@ -1,8 +1,8 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=0.9.0';
-import { Soundscape } from './audio.js?v=0.9.0';
-import { InkWash } from './wash.js?v=0.9.0';
-import { createGroundSnow } from './ground-snow.js?v=0.9.0';
+import { createWorld } from './world.js?v=1.0.0';
+import { Soundscape } from './audio.js?v=1.0.0';
+import { InkWash } from './wash.js?v=1.0.0';
+import { createGroundSnow } from './ground-snow.js?v=1.0.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
@@ -39,7 +39,6 @@ function clearInput() {
   player.vx = player.vz = 0;
   joy.x = joy.y = 0;
   joy.id = null;
-  $('joystick-thumb').style.transform = '';
   drag = null;
 }
 
@@ -94,7 +93,6 @@ function restart() {
   callTime = interactionTime = -100;
   shelter = 0;
   state.target = null;
-  $('interact').hidden = true;
   clearTimeout(feedbackTimer);
   $('feedback').classList.remove('visible');
   sound.resetTransients();
@@ -116,59 +114,40 @@ async function start() {
   setTimeout(() => {
     state.entering = false;
     syncJourneyHUD();
-    notify('跟着墨鳥，尋回第一件行李。拾起後，牠會帶你回馬車。',6500);
+    notify('墨鳥飛到行李旁等候。走近後，點選物件或按 E。',6500);
     canvas.focus({ preventScroll: true });
   }, reducedMotion ? 70 : 2800);
 }
 
-const storyDrawings = {
-  books:'<path d="M130 25q35-12 70 0v62q-35-12-70 0zM200 25q35-12 70 0v62q-35-12-70 0zM145 38q22-6 40 0m-40 14q22-6 40 0m-40 14q22-6 40 0m30-28q22-6 40 0m-40 14q22-6 40 0"/>',
-  hat:'<ellipse class="wash" cx="200" cy="86" rx="86" ry="11"/><path d="M154 70q-8-53 46-53t46 53M142 70q58 15 116 0l-5 13q-53 14-106 0zM155 74l-38 13-14-8m142-5 38 13 14-8"/>',
-  scroll:'<path d="M121 19h158v68H121zM121 19q-12 0-12 11t12 11m158-22q12 0 12 11t-12 11M144 35h28m-28 11h43m21-11h48m-48 11h36M145 68q13-16 25 0m45 0q13-16 25 0m-45-4h11"/>',
-  decree:'<path d="M146 16h107v75H146zM161 30h22m-22 12h38m-38 12h25M249 17l-20 24 17 12-24 22m-44 6 23-20"/><path d="M95 67q10-18 20 0m-13-11v-12m-22 34h60m132-30 8-15 9 15m-6-8v-15"/>',
-  map:'<path d="M68 63q78-45 130-5t134 9"/><path stroke-dasharray="4 6" d="M92 46q58 15 100 18t69-22"/><path d="m250 32 19 21m0-21-19 21M192 64q31 28 106 25m-7-6 8 6-9 5"/><text x="61" y="29">長安</text><text x="237" y="22">邵州</text><text x="280" y="76">永州</text>',
-  farewell:'<path d="M128 23h145v67H128zM128 23l72 43 73-43M128 90l50-37m95 37-49-37M110 13q17 10 20 7m145-2q22-16 29-9"/>',
-};
-function storyArt(id){return `<svg viewBox="0 0 400 110" aria-hidden="true"><ellipse class="wash" cx="201" cy="68" rx="116" ry="37"/>${storyDrawings[id]}</svg>`;}
+function storyArt(id){return `<img src="./assets/props-v2/${id}.png" alt="" width="600" height="380">`;}
 function syncJourneyHUD(){
   if(!world)return;
-  const j=world.journey.getState(),item=world.journey.items.find(i=>i.id===j.carried),next=world.journey.items.find(i=>i.id===j.activeId);
-  $('luggage-count').textContent=`${j.returned} / 6`;
-  $('journey-objective').textContent=item?`跟隨墨鳥，把${item.name}帶回馬車。`:next?`跟隨墨鳥・${j.returned+1}：${next.name}`:'行李已全部放好。';
-  const bearing=$('wagon-bearing');bearing.hidden=!next;
-  if(next){
-    const at=item?world.journey.depositPosition:world.bird.getState(),dx=at.x-player.x,dz=at.z-player.z;
-    const angle=Math.atan2(Math.sin(Math.atan2(-dx,-dz)-player.yaw),Math.cos(Math.atan2(-dx,-dz)-player.yaw));
-    const arrow=Math.abs(angle)<.4?'↑':Math.abs(angle)>2.55?'↓':angle>0?'↖':'↗';
-    bearing.textContent=`${item?'馬車':'墨鳥'} ${arrow} ${Math.round(Math.hypot(dx,dz))} 米`;
-  }
-  const progress=$('task-progress');progress.hidden=!j.working;
-  if(j.working){const percent=Math.round(j.progress*100);progress.setAttribute('aria-valuenow',percent);progress.firstElementChild.style.width=percent+'%';}
+  const j=world.journey.getState();$('luggage-count').textContent=`${j.returned}/5`;
+  $('open-luggage').setAttribute('aria-label',`查看行李與已讀往事，已歸還 ${j.returned} 件，共 5 件`);
 }
 function showStory(item){
-  clearInput();echoAt=Infinity;state.paused=true;state.target=null;$('interact').hidden=true;
-  $('story-year').textContent=item.year;$('story-title').textContent=item.title;$('story-text').textContent=item.text;$('story-detail').textContent=item.detail;$('story-art').innerHTML=storyArt(item.id);
+  clearInput();echoAt=Infinity;state.paused=true;state.target=null;
+  $('story-year').textContent=item.title;$('story-title').textContent=item.name;$('story-title').dataset.long=String(item.name.length>5);$('story-text').textContent=item.text;$('story-detail').textContent=item.detail;$('story-art').innerHTML=storyArt(item.id);
   if(luggageDialog.open)luggageDialog.close();
   if(!storyDialog.open)storyDialog.showModal();syncSound();$('story-continue').focus();
 }
 function closeStory(){
-  if(storyDialog.open)storyDialog.close();state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});
-  const next=world.journey.items.find(i=>i.id===world.journey.getState().activeId);
-  if(next)notify(`墨鳥正在等候。下一件：${next.name}。`,5000);
+  if(storyDialog.open)storyDialog.close();state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});detectInteraction();
+  notify('帶回馬車，一次一件。');
 }
 function openLuggage(){
   if(!world||!state.started||state.entering||state.ended)return;
   clearInput();state.paused=true;echoAt=Infinity;syncSound();
   const j=world.journey.getState();
   $('luggage-list').innerHTML=world.journey.items.map((item,index)=>{
-    const entry=j.items[index],returned=entry.status==='returned';
+    const entry=j.items[index],returned=entry.status==='returned',read=j.storiesRead.includes(item.id);
     const status=returned?'已歸還・重讀':entry.status==='carried'?'手中行李':!entry.unlocked?(item.id==='farewell'?'最後尋回':'稍後尋回'):entry.status==='ready'?'可以拾起':'墨鳥引路';
-    const tag=returned?'button':'div',attr=returned?`type="button" data-story="${item.id}"`:'class="luggage-row"';
-    return `<li><${tag} ${attr}><span class="item-number">${index+1}</span><span><strong>${item.name}</strong><small>${item.place}</small></span><span class="item-state">${status}</span></${tag}></li>`;
+    const tag=read?'button':'div',attr=read?`type="button" data-story="${item.id}"`:'class="luggage-row"';
+    return `<li><${tag} ${attr}><img class="journal-art" src="./assets/props-v2/${item.id}.png" alt=""><span class="item-number">${index+1}</span><span><strong>${item.name}</strong><small>${item.place}</small></span><span class="item-state">${status}</span></${tag}></li>`;
   }).join('');
   if(!luggageDialog.open)luggageDialog.showModal();
 }
-function closeLuggage(){if(luggageDialog.open)luggageDialog.close();state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});}
+function closeLuggage(){if(luggageDialog.open)luggageDialog.close();state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});detectInteraction();}
 function finishJourney(){
   clearInput();state.ended=true;state.paused=false;state.target=null;echoAt=Infinity;clearTimeout(feedbackTimer);$('feedback').classList.remove('visible');
   $('hud').classList.add('journey-ended');$('ending').hidden=false;
@@ -267,7 +246,9 @@ function call() {
 }
 
 function interact() {
-  if (!isPlaying() || !state.target) return;
+  if(!isPlaying())return;
+  detectInteraction();
+  if(!state.target)return;
   const target=state.target,journeyTarget=target.type==='luggage'||target.type==='wagon';
   if(state.time-interactionTime<(journeyTarget ? .35 : 2.8))return;
   interactionTime=state.time;
@@ -277,7 +258,8 @@ function interact() {
     if(result.message)notify(result.message,4000);
     if(result.working)sound.rustle();
     if(result.journal)openLuggage();
-    if(result.story){if(result.complete)finishJourney();else showStory(result.story);}
+    if(result.story)showStory(result.story);
+    if(result.complete)finishJourney();
     syncJourneyHUD();if(isPlaying())detectInteraction();return;
   }
   if (target.type === 'pine') { shakePine(target); notify('枝頭落雪，又靜下來了。'); }
@@ -304,9 +286,7 @@ function detectInteraction() {
   }
   nearest=world.journey.candidate(player)||nearest;
   state.target = nearest;
-  $('interact').hidden = !nearest;
-  if (nearest) $('interaction-label').textContent = nearest.label;
-  document.querySelector('.reticle').classList.toggle('active', Boolean(nearest));
+
 }
 
 function disposeEffect(object) {
@@ -369,7 +349,7 @@ function move(dt) {
   player.yaw = THREE.MathUtils.damp(player.yaw, player.targetYaw, 12, dt);
   player.pitch = THREE.MathUtils.damp(player.pitch, player.targetPitch, 12, dt);
   const zone = world.zoneAt(player.x, player.z);
-  if (zone !== state.zone) { state.zone = zone; $('location').textContent = zone; }
+  if (zone !== state.zone) { state.zone = zone; }
   const shoreDistance = Math.max(0, 1 - Math.abs(player.x - 2) / 25);
   shelter = THREE.MathUtils.damp(shelter, world.shelterAt(player.x,player.z), 2.8, dt);
   sound.update({ wind: .3 + Math.min(.5, (player.y - 1.65) / 35), river: shoreDistance, shelter: Math.max(shelter, zone.includes('松') ? .30 : 0) });
@@ -442,12 +422,13 @@ function resize() {
   camera.aspect = width / height; camera.updateProjectionMatrix();
 }
 
-function init() {
+async function init() {
   try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(devicePixelRatio, matchMedia('(pointer:coarse)').matches ? 1.3 : 1.65));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
+    await document.fonts.load('20px InkBrush');
     world = createWorld();
     wash = new InkWash(renderer);
     camera = new THREE.PerspectiveCamera(56, 1, .1, 720); camera.rotation.order = 'YXZ';
@@ -480,19 +461,18 @@ function init() {
       const fov = state.time < focusUntil ? 44 : 56;
       camera.fov = THREE.MathUtils.damp(camera.fov, fov, 3, dt); camera.updateProjectionMatrix();
       if (isPlaying() && (interactionTick += dt) > .15) { detectInteraction(); interactionTick = 0; }
-      if(state.started&&!state.entering&&!state.ended)syncJourneyHUD();
       wash.render(world.scene, camera, state.time);
       frameSamples++; fpsTime += elapsed;
       if (fpsTime > 1) { state.fps = Math.round(frameSamples / fpsTime); frameSamples = fpsTime = 0; }
     });
     // Let at least two real frames render before the image-to-world transition can start.
-    Promise.resolve(world.ready).then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    Promise.all([world.ready,document.fonts.load('20px InkBrush'),...['hat','scroll','decree','map','farewell'].map(id=>new Promise((resolve,reject)=>{const img=new Image();img.onload=resolve;img.onerror=reject;img.src=`./assets/props-v2/${id}.png`;}))]).then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
       state.ready = true; $('start').disabled = false; $('start-label').textContent = '步入江雪'; $('load-status').textContent = '';
     }))).catch(error => {
       console.error('水墨素材載入失敗', error);
       $('load-status').textContent = '水墨素材未能載入，請重新整理再試。';
     });
-    window.__JIANGXUE__ = Object.freeze({ inspectGuideRoutes:()=>world.bird.inspectRoutes(), getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.(),journey:world.journey.getState(),bird:world.bird.getState() }) });
+    window.__JIANGXUE__ = Object.freeze({ inspectGuideRoutes:()=>world.bird.inspectRoutes(), getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type,targetId:state.target?.id,targetLabel:state.target?.label, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.(),journey:world.journey.getState(),bird:world.bird.getState() }) });
   } catch (error) {
     console.error('江雪世界載入失敗', error);
     $('start-label').textContent = '重新載入'; $('start').disabled = false;
@@ -510,23 +490,13 @@ luggageDialog.addEventListener('cancel',event=>{event.preventDefault();closeLugg
 $('luggage-list').addEventListener('click',event=>{const id=event.target.closest('[data-story]')?.dataset.story;if(id){const item=world.journey.items.find(i=>i.id===id);showStory(item);}});
 $('start').addEventListener('click', start);
 $('intro-help').addEventListener('click', openMenu);
-$('help').addEventListener('click', openMenu);
-$('pause').addEventListener('click', openMenu);
 $('close-menu').addEventListener('click', closeMenu);
 $('resume').addEventListener('click', closeMenu);
 $('restart').addEventListener('click', restart);
 menu.addEventListener('cancel', event => { event.preventDefault(); closeMenu(); });
 $('reference').addEventListener('click', () => referenceDialog.showModal());
 $('close-reference').addEventListener('click', () => referenceDialog.close());
-$('call').addEventListener('click', call);
-$('interact').addEventListener('click', interact);
 $('sound').addEventListener('click', async () => { state.muted = !state.muted; if (!state.muted) { try { await sound.start(); } catch { state.muted = true; notify('這個瀏覽器暫未能播放聲音。'); } } syncSound(); });
-$('fullscreen').addEventListener('click', async () => {
-  try { if (document.fullscreenElement) await document.exitFullscreen(); else await $('experience').requestFullscreen(); }
-  catch { notify('可使用瀏覽器的全螢幕模式觀看。'); }
-});
-document.addEventListener('fullscreenchange', () => { $('fullscreen').setAttribute('aria-label', document.fullscreenElement ? '離開全螢幕' : '全螢幕'); resize(); });
-
 window.addEventListener('keydown', event => {
   if (event.code === 'Escape' && isPlaying()) { event.preventDefault(); openMenu(); return; }
   if (!isPlaying() || event.target.closest('dialog,input,textarea')) return;
@@ -540,31 +510,43 @@ window.addEventListener('blur', clearInput);
 document.addEventListener('visibilitychange', () => { if (document.hidden && isPlaying()) openMenu(); });
 window.addEventListener('resize', resize);
 
-canvas.addEventListener('pointerdown', event => {
-  if (!isPlaying() || event.button > 0 || drag) return;
-  if (event.pointerType === 'touch' && event.clientX < innerWidth * .32 && event.clientY > innerHeight * .55) return;
-  canvas.focus({ preventScroll: true }); canvas.setPointerCapture(event.pointerId);
-  drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
-});
-canvas.addEventListener('pointermove', event => {
-  if (!isPlaying() || !drag || drag.id !== event.pointerId) return;
-  player.targetYaw -= (event.clientX - drag.x) * .0032;
-  player.targetPitch = THREE.MathUtils.clamp(player.targetPitch - (event.clientY - drag.y) * .0028, -1.1, .85);
-  drag.x = event.clientX; drag.y = event.clientY;
-});
-for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) canvas.addEventListener(name, event => { if (event.pointerId === drag?.id) drag = null; });
-canvas.addEventListener('contextmenu', event => event.preventDefault());
-const joystick = $('joystick');
-function updateJoystick(event) {
-  const rect = joystick.getBoundingClientRect(), limit = rect.width * .34;
-  let dx = event.clientX - rect.left - rect.width / 2, dy = event.clientY - rect.top - rect.height / 2;
-  const length = Math.hypot(dx, dy); if (length > limit) { dx *= limit / length; dy *= limit / length; }
-  joy.x = dx / limit; joy.y = dy / limit;
-  $('joystick-thumb').style.transform = `translate(${dx}px,${dy}px)`;
+const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
+function targetAt(x,y){
+  if(!state.target)return false;
+  pointer.set(x/innerWidth*2-1,1-y/innerHeight*2);raycaster.setFromCamera(pointer,camera);
+  const object=state.target.root||state.target.object;
+  if(object)return raycaster.intersectObject(object,true).some(hit=>!hit.object.userData.rigBleed&&hit.distance<12);
+  const centre=state.target.position.clone();centre.y+=.45;
+  return !!raycaster.ray.intersectSphere(new THREE.Sphere(centre,.8),new THREE.Vector3());
 }
-joystick.addEventListener('pointerdown', event => { if (!isPlaying() || joy.id !== null) return; event.preventDefault(); joy.id = event.pointerId; joystick.setPointerCapture(event.pointerId); updateJoystick(event); });
-joystick.addEventListener('pointermove', event => { if (event.pointerId === joy.id) updateJoystick(event); });
-for (const name of ['pointerup','pointercancel','lostpointercapture']) joystick.addEventListener(name, event => { if(event.pointerId !== joy.id) return; joy.x = joy.y = 0; joy.id = null; $('joystick-thumb').style.transform = ''; });
+canvas.addEventListener('pointerdown',event=>{
+  if(!isPlaying()||event.button>0)return;
+  canvas.focus({preventScroll:true});canvas.setPointerCapture(event.pointerId);
+  const motion=event.pointerType==='touch'&&event.clientX<innerWidth*.45;
+  if(motion){if(joy.id!==null)return;joy.id=event.pointerId;joy.startX=event.clientX;joy.startY=event.clientY;joy.travel=0;}
+  else if(!drag)drag={id:event.pointerId,x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,travel:0};
+});
+canvas.addEventListener('pointermove',event=>{
+  if(!isPlaying())return;
+  if(event.pointerId===joy.id){
+    let dx=event.clientX-joy.startX,dy=event.clientY-joy.startY;joy.travel=Math.max(joy.travel,Math.hypot(dx,dy));
+    const length=Math.hypot(dx,dy),limit=60;if(length>limit){dx*=limit/length;dy*=limit/length;}
+    joy.x=length>8?dx/limit:0;joy.y=length>8?dy/limit:0;return;
+  }
+  if(drag&&drag.id===event.pointerId){
+    drag.travel=Math.max(drag.travel,Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY));
+    player.targetYaw-=(event.clientX-drag.x)*.0032;
+    player.targetPitch=THREE.MathUtils.clamp(player.targetPitch-(event.clientY-drag.y)*.0028,-1.1,.85);
+    drag.x=event.clientX;drag.y=event.clientY;
+  }else if(event.pointerType==='mouse')canvas.style.cursor=targetAt(event.clientX,event.clientY)?'pointer':'grab';
+});
+for(const name of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(name,event=>{
+  let tap=false;
+  if(event.pointerId===joy.id){tap=joy.travel<9;joy.id=null;joy.x=joy.y=0;}
+  if(event.pointerId===drag?.id){tap=drag.travel<9;drag=null;}
+  if(name==='pointerup'&&tap&&isPlaying()){detectInteraction();if(targetAt(event.clientX,event.clientY))interact();}
+});
+canvas.addEventListener('contextmenu',event=>event.preventDefault());
 canvas.addEventListener('webglcontextlost', event => { event.preventDefault(); if (state.started) openMenu(); notify('畫面暫停，正在恢復。'); });
 canvas.addEventListener('webglcontextrestored', () => location.reload());
 window.addEventListener('pagehide', () => sound.dispose());

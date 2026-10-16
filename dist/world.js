@@ -1,12 +1,13 @@
 import * as THREE from './vendor/three.module.js';
-import { createBrushMaterials } from './ink-materials.js?v=0.9.0';
-import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=0.9.0';
-import { createRiverMaterial } from './river.js?v=0.9.0';
-import { createMountainSurround } from './mountains.js?v=0.9.0';
-import { createAmbience } from './ambience.js?v=0.9.0';
-import { createJourney, WAGON_SITE, JOURNEY_SPAWN } from './journey.js?v=0.9.0';
-import { createInkBird } from './ink-bird.js?v=0.9.0';
-import { LUGGAGE } from './journey-state.js?v=0.9.0';
+import { createBrushMaterials } from './ink-materials.js?v=1.0.0';
+import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=1.0.0';
+import { createRiverMaterial } from './river.js?v=1.0.0';
+import { createMountainSurround } from './mountains.js?v=1.0.0';
+import { createAmbience } from './ambience.js?v=1.0.0';
+import { createJourney, WAGON_SITE, JOURNEY_SPAWN } from './journey.js?v=1.0.0';
+import { createInkBird } from './ink-bird.js?v=1.0.0';
+import { nearBank as bank, farBank as farBankAt, passWall } from './landscape-shape.js?v=1.0.0';
+import { LUGGAGE } from './journey-state.js?v=1.0.0';
 
 // Walkable terrain, weathered stone, pines and the boat are real 3D.
 // Chinese brush pigments wrap their surfaces; distant paintings complete the view.
@@ -16,7 +17,6 @@ const smooth = (a, b, x) => {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
 };
-const bank = z => 1 + Math.sin(z * 0.035) * 2.7;
 const g = (x, z, cx, cz, sx, sz) => Math.exp(-(((x - cx) / sx) ** 2 + ((z - cz) / sz) ** 2));
 
 export function createWorld() {
@@ -267,7 +267,7 @@ export function createWorld() {
 
   // The outward road shares the same irregular brush edges and ground texture.
   const beforeExitRoad=randomSeed;
-  makePath([[-22,32],[-24,43],[-25,55],[-29,68],[-35,84]],3.5);
+  makePath([[-22,32],[-24,43],[-27,54],[-27,67],[-30,84]],3.5);
   randomSeed=beforeExitRoad;
 
   // Dilute, irregular contact washes sit on the actual snow surface.
@@ -372,7 +372,6 @@ export function createWorld() {
   }
   // A continuous low opposite shore bounds the broad, uninterrupted channel.
   // Its mountains remain distant ink paintings, with no pillars in the river.
-  const farBankAt=z=>67+Math.sin(z*.019)*6+Math.sin(z*.041)*2.5;
   const farHeightAt=(x,z)=>.19+smooth(0,20,x-farBankAt(z))*(1.2+valueNoise3(x*.027,0,z*.027,41)*1.4);
   const farPositions=[],farUV=[],farIndices=[],farWidth=22,farLength=128;
   for(let j=0;j<=farLength;j++){
@@ -435,6 +434,11 @@ export function createWorld() {
     addRock(x,rz,r,h,cliffMaterial,true,true);
   }
 
+  // Broad continuous snow-rock skins frame the road at its tip. The cart blocks the gap.
+  for(const side of [-1,1]){
+    const cliff=addRock(-27+side*10.55,66,8.65,21.0,cliffMaterial,true,false,true);
+    cliff.scale.z=1.35;cliff.rotation.y=side*.10;
+  }
   const journey=createJourney({scene,palette,heightAt,collisions});
   const journeyReserved=(x,z,r=0)=>Math.hypot(x-WAGON_SITE.x,z-(WAGON_SITE.z+2.4))<6.9+r||LUGGAGE.some(i=>Math.hypot(x-i.x,z-i.z)<2.2+r);
 
@@ -689,6 +693,12 @@ export function createWorld() {
       queueWinterPlant(type,cx+Math.cos(angle)*spread,cz+Math.sin(angle)*spread,.55+plantRand()*.57);
     }
   }
+  for(const [cx,cz] of [[-36,24],[-39,28],[-23,47],[-33,52],[-54,32],[-47,-19],[-31,-38],[-16,29]]){
+    for(let i=0;i<24;i++){
+      const a=plantRand()*TAU,r=Math.sqrt(plantRand())*2.2;
+      queueWinterPlant(i%4===0?'seedhead':i%3===0?'twig':'shrub',cx+Math.cos(a)*r,cz+Math.sin(a)*r,.70+plantRand()*.49);
+    }
+  }
   let vegetationBatchCount=0;
   const windPlantMaterials=[];
   for(const [material,pieces] of winterPlantBatches){
@@ -715,6 +725,7 @@ export function createWorld() {
 
   function canWalk(x,z){
     if(x < -73 || z < -73 || z > 69 || x > bank(z)-1.25)return false;
+    if(passWall(x,z))return false;
     // The accessible landscape has broad slopes and several connecting loops.
     if(x < -67 && (z < -58 || z > 58))return false;
     for(const c of collisions)if((x-c.x)**2+(z-c.z)**2<c.r*c.r)return false;
@@ -767,7 +778,7 @@ export function createWorld() {
       if(canWalk(x,z)&&shelterAt(x,z)>.55){shelterSpots.push(Object.freeze({x,z,shelter:shelterAt(x,z),rockX:rock.x,rockZ:rock.z}));break;}
     }
   }
-  const journeySpawn=innerWidth/innerHeight<.8?{x:-31.1,z:35.2,yaw:3.40,pitch:-.025}:JOURNEY_SPAWN;
+  const journeySpawn=JOURNEY_SPAWN;
   const bird=createInkBird({scene,journey,canWalk,heightAt,roads:pathSamples,spawn:journeySpawn});
   const landmarks={summit:{x:-46,z:-12},shore:{x:-4,z:-24},forest:{x:-48,z:37}};
   return {scene,ready,journey,bird,spawn:journeySpawn,heightAt,canWalk,shelterAt,shelterSpots:Object.freeze(shelterSpots),ambienceDiagnostics:ambience.diagnostics,zoneAt,interactables,boat,update,landmarks,pineClearances,pathSampling:{count:pathSamples.length,maxSpacing:maxPathSampleSpacing,mode:'rendered-road-footprint'},pathWidths:Object.freeze(pathWidths),assetState,vegetationStats:Object.freeze({counts:{...vegetationCounts},clumps:winterPlants.length,batches:vegetationBatchCount,minRoadClearance:Math.min(...winterPlants.map(p=>p.clearance))}),vegetationPlacements:Object.freeze(winterPlants),farForestStats:Object.freeze(farForestStats),treeVariantCounts:Object.freeze(pineClearances.reduce((counts,p)=>(counts[p.variant]=(counts[p.variant]||0)+1,counts),{}))};

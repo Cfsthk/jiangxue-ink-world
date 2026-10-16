@@ -497,7 +497,7 @@ export function buildWinterPlant(palette, { kind = 'grass', type = null, size = 
   root.name = `冬植・${plantKind}`;
 
   const addSnowFleck = (center, radius = .045, depth = radius * .62) => {
-    b.add(new THREE.SphereGeometry(1, softSnow ? 16 : 6, softSnow ? 10 : 4), snow, center, [0, 0, 0], [radius, .018 + radius * .16, depth]);
+    b.add(new THREE.SphereGeometry(1, softSnow || plantKind==='shrub' ? 16 : 8, softSnow || plantKind==='shrub' ? 10 : 6), snow, center, [0, 0, 0], [radius, .018 + radius * .16, depth]);
   };
   const addStem = (points, material, startRadius, endRadius, segments = 6, sides = 4) => {
     b.add(tube(points, startRadius, endRadius, segments, sides), material);
@@ -586,7 +586,7 @@ export function buildWinterPlant(palette, { kind = 'grass', type = null, size = 
   } else {
     const trunkTip = [.03 + (r() - .5) * .08, .38 + r() * .16, (r() - .5) * .08];
     addStem([[0, 0, 0], [.02, .20, .01], trunkTip], bark, .036, .012, 7, 5);
-    const count = 5 + Math.floor(r() * 3);
+    const count = 14 + Math.floor(r() * 6);
     for (let i = 0; i < count; i++) {
       const angle = i / count * TAU + (r() - .5) * .45;
       const height = .30 + r() * .38, reach = .30 + r() * .34;
@@ -596,7 +596,13 @@ export function buildWinterPlant(palette, { kind = 'grass', type = null, size = 
       addStem([start, bend, tip], bark, .026, .005, 7, 5);
       const twigTip = [tip[0] + Math.cos(angle + .55) * (.12 + r() * .15), tip[1] + .12 + r() * .14, tip[2] + Math.sin(angle + .55) * (.12 + r() * .15)];
       addStem([tip, twigTip], bark, .012, .0025, 5, 4);
-      if (i % 2 === 0) addSnowFleck([bend[0] * .78, bend[1] + .015, bend[2] * .78], .040 + r() * .02, .024);
+      for(let fork=0;fork<3;fork++){
+        const t=.45+fork*.16,from=[bend[0]+(tip[0]-bend[0])*t,bend[1]+(tip[1]-bend[1])*t,bend[2]+(tip[2]-bend[2])*t];
+        const a=angle+(fork%2?-.75:.85),twig=[from[0]+Math.cos(a)*(.13+r()*.12),from[1]+.10+r()*.13,from[2]+Math.sin(a)*(.13+r()*.12)];
+        addStem([from,twig],bark,.008,.0015,6,5);
+        if((i+fork)%5===0)b.add(new THREE.SphereGeometry(1,12,8),foliage,twig,[0,a,.35],[.045,.013,.025]);
+      }
+      if (i % 3 === 0) addSnowFleck([bend[0] * .78, bend[1] + .015, bend[2] * .78], .040 + r() * .02, .024);
     }
   }
 
