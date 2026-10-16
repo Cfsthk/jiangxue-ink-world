@@ -1,9 +1,11 @@
 import * as THREE from './vendor/three.module.js';
-import { createBrushMaterials } from './ink-materials.js?v=0.7.0';
-import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=0.7.0';
-import { createRiverMaterial } from './river.js?v=0.7.0';
-import { createMountainSurround } from './mountains.js?v=0.7.0';
-import { createAmbience } from './ambience.js?v=0.7.0';
+import { createBrushMaterials } from './ink-materials.js?v=0.8.0';
+import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=0.8.0';
+import { createRiverMaterial } from './river.js?v=0.8.0';
+import { createMountainSurround } from './mountains.js?v=0.8.0';
+import { createAmbience } from './ambience.js?v=0.8.0';
+import { createJourney, WAGON_SITE, JOURNEY_SPAWN } from './journey.js?v=0.8.0';
+import { LUGGAGE } from './journey-state.js?v=0.8.0';
 
 // Walkable terrain, weathered stone, pines and the boat are real 3D.
 // Chinese brush pigments wrap their surfaces; distant paintings complete the view.
@@ -262,6 +264,11 @@ export function createWorld() {
   makePath([[-22,32],[-9,35],[-10,48],[-23,59],[-39,60],[-50,50],[-55,43]],2.5);
   makePath([[-17,0],[-7,5],[-9,20],[-16,16]],2.3);
 
+  // The outward road shares the same irregular brush edges and ground texture.
+  const beforeExitRoad=randomSeed;
+  makePath([[-22,32],[-24,43],[-25,55],[-29,68],[-35,84]],3.5);
+  randomSeed=beforeExitRoad;
+
   // Dilute, irregular contact washes sit on the actual snow surface.
   const contactCanvas=document.createElement('canvas');contactCanvas.width=128;contactCanvas.height=128;
   const contactContext=contactCanvas.getContext('2d');
@@ -420,7 +427,15 @@ export function createWorld() {
     const r=9+rand()*4,h=17+rand()*14;
     addRock(-85-rand()*2,z,r,h,cliffMaterial,true,true);
   }
-  for(const z of [-83,83])for(let i=0;i<5;i++)addRock(-70+i*13,z+rand()*6,8+rand()*4,13+rand()*16,cliffMaterial,true,true);
+  for(const z of [-83,83])for(let i=0;i<5;i++){
+    const x=-70+i*13,rz=z+rand()*6,r=8+rand()*4,h=13+rand()*16;
+    // Leave a visible mountain pass where the new outward road continues.
+    if(z>0&&(i===2||i===3))continue;
+    addRock(x,rz,r,h,cliffMaterial,true,true);
+  }
+
+  const journey=createJourney({scene,palette,heightAt,collisions});
+  const journeyReserved=(x,z,r=0)=>Math.hypot(x-WAGON_SITE.x,z-(WAGON_SITE.z+2.4))<6.9+r||LUGGAGE.some(i=>Math.hypot(x-i.x,z-i.z)<2.2+r);
 
   function beachPathClearanceAt(x,z){
     let clearance=Infinity;
@@ -497,7 +512,7 @@ export function createWorld() {
 
   function findPineSite(x,z,size){
     const safe=(px,pz)=>{
-      if(px<-69||pz<-69||pz>65||px>bank(pz)-3||!canWalk(px,pz))return false;
+      if(px<-69||pz<-69||pz>65||px>bank(pz)-3||!canWalk(px,pz)||journeyReserved(px,pz,size*.65))return false;
       if(Math.hypot(px+25,pz-9)<5+size*.4)return false;
       if(collisions.some(c=>Math.hypot(px-c.x,pz-c.z)<c.r+.90+size*.25))return false;
       return pathClearanceAt(px,pz)>=2.6;
@@ -596,7 +611,7 @@ export function createWorld() {
   const plantRand=()=>{plantSeed=(plantSeed*1664525+1013904223)>>>0;return plantSeed/4294967296;};
   function queueWinterPlant(type,x,z,size,far=false){
     // Reject obvious collisions before generating several thousand vertices.
-    if(!far&&(!canWalk(x,z)||pathClearanceAt(x,z)<.65))return false;
+    if(!far&&(!canWalk(x,z)||pathClearanceAt(x,z)<.65||journeyReserved(x,z,size*.25)))return false;
     const seed=Math.floor(plantRand()*1000000),plant=buildWinterPlant(palette,{kind:type,size,seed});
     plant.updateMatrixWorld(true);
     const bounds=new THREE.Box3().setFromObject(plant);
@@ -750,6 +765,7 @@ export function createWorld() {
       if(canWalk(x,z)&&shelterAt(x,z)>.55){shelterSpots.push(Object.freeze({x,z,shelter:shelterAt(x,z),rockX:rock.x,rockZ:rock.z}));break;}
     }
   }
+  const journeySpawn=innerWidth/innerHeight<.8?{x:-31.1,z:35.2,yaw:3.40,pitch:-.025}:JOURNEY_SPAWN;
   const landmarks={summit:{x:-46,z:-12},shore:{x:-4,z:-24},forest:{x:-48,z:37}};
-  return {scene,ready,spawn:{x:-25,z:9,yaw:-0.60,pitch:0.01},heightAt,canWalk,shelterAt,shelterSpots:Object.freeze(shelterSpots),ambienceDiagnostics:ambience.diagnostics,zoneAt,interactables,boat,update,landmarks,pineClearances,pathSampling:{count:pathSamples.length,maxSpacing:maxPathSampleSpacing,mode:'rendered-road-footprint'},pathWidths:Object.freeze(pathWidths),assetState,vegetationStats:Object.freeze({counts:{...vegetationCounts},clumps:winterPlants.length,batches:vegetationBatchCount,minRoadClearance:Math.min(...winterPlants.map(p=>p.clearance))}),vegetationPlacements:Object.freeze(winterPlants),farForestStats:Object.freeze(farForestStats),treeVariantCounts:Object.freeze(pineClearances.reduce((counts,p)=>(counts[p.variant]=(counts[p.variant]||0)+1,counts),{}))};
+  return {scene,ready,journey,spawn:journeySpawn,heightAt,canWalk,shelterAt,shelterSpots:Object.freeze(shelterSpots),ambienceDiagnostics:ambience.diagnostics,zoneAt,interactables,boat,update,landmarks,pineClearances,pathSampling:{count:pathSamples.length,maxSpacing:maxPathSampleSpacing,mode:'rendered-road-footprint'},pathWidths:Object.freeze(pathWidths),assetState,vegetationStats:Object.freeze({counts:{...vegetationCounts},clumps:winterPlants.length,batches:vegetationBatchCount,minRoadClearance:Math.min(...winterPlants.map(p=>p.clearance))}),vegetationPlacements:Object.freeze(winterPlants),farForestStats:Object.freeze(farForestStats),treeVariantCounts:Object.freeze(pineClearances.reduce((counts,p)=>(counts[p.variant]=(counts[p.variant]||0)+1,counts),{}))};
 }

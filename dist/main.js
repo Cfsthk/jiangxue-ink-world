@@ -1,19 +1,20 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=0.7.0';
-import { Soundscape } from './audio.js?v=0.7.0';
-import { InkWash } from './wash.js?v=0.7.0';
-import { createGroundSnow } from './ground-snow.js?v=0.7.0';
+import { createWorld } from './world.js?v=0.8.0';
+import { Soundscape } from './audio.js?v=0.8.0';
+import { InkWash } from './wash.js?v=0.8.0';
+import { createGroundSnow } from './ground-snow.js?v=0.8.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
 const intro = $('intro');
 const menu = $('menu');
 const referenceDialog = $('reference-dialog');
+const storyDialog = $('story-dialog'), luggageDialog = $('luggage-dialog');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const keys = new Set();
 const sound = new Soundscape();
 sound.setMuted(true);
-const state = { ready: false, started: false, entering: false, paused: false, muted: true, time: 0, zone: '', target: null, fps: 60 };
+const state = { ready: false, started: false, entering: false, paused: false, ended: false, muted: true, time: 0, zone: '', target: null, fps: 60 };
 const player = { x: -32, z: 44, y: 0, yaw: -.85, pitch: -.08, targetYaw: -.85, targetPitch: -.08, vx: 0, vz: 0 };
 const joy = { x: 0, y: 0, id: null };
 let renderer, camera, world, wash;
@@ -42,7 +43,7 @@ function clearInput() {
   drag = null;
 }
 
-function isPlaying() { return state.started && !state.entering && !state.paused; }
+function isPlaying() { return state.started && !state.entering && !state.paused && !state.ended; }
 
 function syncSound() {
   sound.setMuted(state.muted || state.paused || !state.started);
@@ -69,6 +70,12 @@ function closeMenu() {
 }
 
 function restart() {
+  state.ended = false;
+  world.journey.reset();
+  if(storyDialog.open)storyDialog.close();
+  if(luggageDialog.open)luggageDialog.close();
+  $('ending').hidden=true;
+  $('hud').classList.remove('journey-ended');
   Object.assign(player, world.spawn);
   player.targetYaw = player.yaw;
   player.targetPitch = player.pitch;
@@ -90,6 +97,7 @@ function restart() {
   clearTimeout(feedbackTimer);
   $('feedback').classList.remove('visible');
   sound.resetTransients();
+  syncJourneyHUD();
   closeMenu();
 }
 
@@ -106,8 +114,65 @@ async function start() {
   setTimeout(() => { intro.hidden = true; $('hud').hidden = false; }, reducedMotion ? 30 : 1450);
   setTimeout(() => {
     state.entering = false;
+    syncJourneyHUD();
+    notify('行李散落山間。每次找回一件，帶回車後放好。',6500);
     canvas.focus({ preventScroll: true });
   }, reducedMotion ? 70 : 2800);
+}
+
+const storyDrawings = {
+  books:'<path d="M130 25q35-12 70 0v62q-35-12-70 0zM200 25q35-12 70 0v62q-35-12-70 0zM145 38q22-6 40 0m-40 14q22-6 40 0m-40 14q22-6 40 0m30-28q22-6 40 0m-40 14q22-6 40 0"/>',
+  hat:'<ellipse class="wash" cx="200" cy="86" rx="86" ry="11"/><path d="M154 70q-8-53 46-53t46 53M142 70q58 15 116 0l-5 13q-53 14-106 0zM155 74l-38 13-14-8m142-5 38 13 14-8"/>',
+  scroll:'<path d="M121 19h158v68H121zM121 19q-12 0-12 11t12 11m158-22q12 0 12 11t-12 11M144 35h28m-28 11h43m21-11h48m-48 11h36M145 68q13-16 25 0m45 0q13-16 25 0m-45-4h11"/>',
+  decree:'<path d="M146 16h107v75H146zM161 30h22m-22 12h38m-38 12h25M249 17l-20 24 17 12-24 22m-44 6 23-20"/><path d="M95 67q10-18 20 0m-13-11v-12m-22 34h60m132-30 8-15 9 15m-6-8v-15"/>',
+  map:'<path d="M68 63q78-45 130-5t134 9"/><path stroke-dasharray="4 6" d="M92 46q58 15 100 18t69-22"/><path d="m250 32 19 21m0-21-19 21M192 64q31 28 106 25m-7-6 8 6-9 5"/><text x="61" y="29">長安</text><text x="237" y="22">邵州</text><text x="280" y="76">永州</text>',
+  farewell:'<path d="M128 23h145v67H128zM128 23l72 43 73-43M128 90l50-37m95 37-49-37M110 13q17 10 20 7m145-2q22-16 29-9"/>',
+};
+function storyArt(id){return `<svg viewBox="0 0 400 110" aria-hidden="true"><ellipse class="wash" cx="201" cy="68" rx="116" ry="37"/>${storyDrawings[id]}</svg>`;}
+function syncJourneyHUD(){
+  if(!world)return;
+  const j=world.journey.getState(),item=world.journey.items.find(i=>i.id===j.carried);
+  $('luggage-count').textContent=`${j.returned} / 6`;
+  $('journey-objective').textContent=item?`帶着${item.name}・回到馬車放好。`:j.returned===5?'最後一件：江岸蘆葦旁的送別信。':'尋回散落行李，每次帶回一件。';
+  const bearing=$('wagon-bearing');bearing.hidden=!item;
+  if(item){
+    const at=world.journey.depositPosition,dx=at.x-player.x,dz=at.z-player.z;
+    const angle=Math.atan2(Math.sin(Math.atan2(-dx,-dz)-player.yaw),Math.cos(Math.atan2(-dx,-dz)-player.yaw));
+    const arrow=Math.abs(angle)<.4?'↑':Math.abs(angle)>2.55?'↓':angle>0?'↖':'↗';
+    bearing.textContent=`馬車 ${arrow} ${Math.round(Math.hypot(dx,dz))} 米`;
+  }
+  const progress=$('task-progress');progress.hidden=!j.working;
+  if(j.working){const percent=Math.round(j.progress*100);progress.setAttribute('aria-valuenow',percent);progress.firstElementChild.style.width=percent+'%';}
+}
+function showStory(item){
+  clearInput();echoAt=Infinity;state.paused=true;state.target=null;$('interact').hidden=true;
+  $('story-year').textContent=item.year;$('story-title').textContent=item.title;$('story-text').textContent=item.text;$('story-detail').textContent=item.detail;$('story-art').innerHTML=storyArt(item.id);
+  if(luggageDialog.open)luggageDialog.close();
+  if(!storyDialog.open)storyDialog.showModal();syncSound();$('story-continue').focus();
+}
+function closeStory(){
+  if(storyDialog.open)storyDialog.close();state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});
+  if(world.journey.getState().returned===5)notify('五件行李已放好。還有江岸蘆葦旁的一封送別信。',6500);
+}
+function openLuggage(){
+  if(!world||!state.started||state.entering||state.ended)return;
+  clearInput();state.paused=true;echoAt=Infinity;syncSound();
+  const j=world.journey.getState();
+  $('luggage-list').innerHTML=world.journey.items.map((item,index)=>{
+    const entry=j.items[index],returned=entry.status==='returned';
+    const status=returned?'已歸還・重讀':entry.status==='carried'?'手中行李':!entry.unlocked?'最後尋回':entry.status==='ready'?'可以拾起':'待尋回';
+    const tag=returned?'button':'div',attr=returned?`type="button" data-story="${item.id}"`:'class="luggage-row"';
+    return `<li><${tag} ${attr}><span class="item-number">${index+1}</span><span><strong>${item.name}</strong><small>${item.place}</small></span><span class="item-state">${status}</span></${tag}></li>`;
+  }).join('');
+  if(!luggageDialog.open)luggageDialog.showModal();
+}
+function closeLuggage(){if(luggageDialog.open)luggageDialog.close();state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});}
+function finishJourney(){
+  clearInput();state.ended=true;state.paused=false;state.target=null;echoAt=Infinity;clearTimeout(feedbackTimer);$('feedback').classList.remove('visible');
+  $('hud').classList.add('journey-ended');$('ending').hidden=false;
+  const at=world.journey.wagon.rig.position,dx=at.x-player.x,dz=at.z+1-player.z;
+  const direction=Math.atan2(-dx,-dz);player.targetYaw=player.yaw+Math.atan2(Math.sin(direction-player.yaw),Math.cos(direction-player.yaw));player.targetPitch=-.025;
+  $('journey-replay').focus();syncSound();
 }
 
 function makeFootTexture() {
@@ -200,9 +265,18 @@ function call() {
 }
 
 function interact() {
-  if (!isPlaying() || !state.target || state.time - interactionTime < 2.8) return;
-  interactionTime = state.time;
-  const target = state.target;
+  if (!isPlaying() || !state.target) return;
+  const target=state.target,journeyTarget=target.type==='luggage'||target.type==='wagon';
+  if(state.time-interactionTime<(journeyTarget ? .35 : 2.8))return;
+  interactionTime=state.time;
+  if(journeyTarget){
+    const result=world.journey.act(target);if(!result)return;
+    if(result.message)notify(result.message,4000);
+    if(result.working)sound.rustle();
+    if(result.journal)openLuggage();
+    if(result.story){if(result.complete)finishJourney();else showStory(result.story);}
+    syncJourneyHUD();if(isPlaying())detectInteraction();return;
+  }
   if (target.type === 'pine') { shakePine(target); notify('枝頭落雪，又靜下來了。'); }
   else if (target.type === 'stone') { throwStone(); }
   else if (target.type === 'echo') { call(); }
@@ -225,6 +299,7 @@ function detectInteraction() {
       score = distance / item.radius; nearest = item;
     }
   }
+  nearest=world.journey.candidate(player)||nearest;
   state.target = nearest;
   $('interact').hidden = !nearest;
   if (nearest) $('interaction-label').textContent = nearest.label;
@@ -386,6 +461,14 @@ function init() {
       if (!state.paused && !document.hidden) {
         state.time += dt;
         if (isPlaying()) move(dt);
+        world.journey.update(dt,state.time,player);
+        const workingFocus=world.journey.focusPoint();
+        if(workingFocus&&isPlaying()){
+          const dx=workingFocus.x-player.x,dz=workingFocus.z-player.z,direction=Math.atan2(-dx,-dz);
+          player.targetYaw=player.yaw+Math.atan2(Math.sin(direction-player.yaw),Math.cos(direction-player.yaw));
+          player.targetPitch=THREE.MathUtils.clamp(Math.atan2(workingFocus.y-player.y,Math.hypot(dx,dz)),-.95,.40);
+        }
+        if(state.ended){player.yaw=THREE.MathUtils.damp(player.yaw,player.targetYaw,2.2,dt);player.pitch=THREE.MathUtils.damp(player.pitch,player.targetPitch,2.2,dt);}
         world.update(dt, state.time, player, .5+.3*Math.sin(state.time*.37)+.2*Math.sin(state.time*.83+1.4));
         updateEffects(dt); weather(dt);
       }
@@ -393,6 +476,7 @@ function init() {
       const fov = state.time < focusUntil ? 44 : 56;
       camera.fov = THREE.MathUtils.damp(camera.fov, fov, 3, dt); camera.updateProjectionMatrix();
       if (isPlaying() && (interactionTick += dt) > .15) { detectInteraction(); interactionTick = 0; }
+      if(state.started&&!state.entering&&!state.ended)syncJourneyHUD();
       wash.render(world.scene, camera, state.time);
       frameSamples++; fpsTime += elapsed;
       if (fpsTime > 1) { state.fps = Math.round(frameSamples / fpsTime); frameSamples = fpsTime = 0; }
@@ -404,7 +488,7 @@ function init() {
       console.error('水墨素材載入失敗', error);
       $('load-status').textContent = '水墨素材未能載入，請重新整理再試。';
     });
-    window.__JIANGXUE__ = Object.freeze({ getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.() }) });
+    window.__JIANGXUE__ = Object.freeze({ getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.(),journey:world.journey.getState() }) });
   } catch (error) {
     console.error('江雪世界載入失敗', error);
     $('start-label').textContent = '重新載入'; $('start').disabled = false;
@@ -413,6 +497,13 @@ function init() {
   }
 }
 
+$('open-luggage').addEventListener('click',openLuggage);
+$('close-luggage').addEventListener('click',closeLuggage);
+$('story-continue').addEventListener('click',closeStory);
+$('journey-replay').addEventListener('click',restart);
+storyDialog.addEventListener('cancel',event=>{event.preventDefault();closeStory();});
+luggageDialog.addEventListener('cancel',event=>{event.preventDefault();closeLuggage();});
+$('luggage-list').addEventListener('click',event=>{const id=event.target.closest('[data-story]')?.dataset.story;if(id){const item=world.journey.items.find(i=>i.id===id);showStory(item);}});
 $('start').addEventListener('click', start);
 $('intro-help').addEventListener('click', openMenu);
 $('help').addEventListener('click', openMenu);

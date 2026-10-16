@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#efefec">
-  <meta name="description" content="走進柳宗元〈江雪〉的水墨山水。沿雪徑漫遊、登高望江，在風雪中發現一葉孤舟。">
+  <meta name="description" content="走進柳宗元〈江雪〉的水墨山水。沿雪徑找回散落行李，在風雪中認識柳宗元的遠行。">
   <title>江雪・雪境漫遊</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Ctext x='4' y='37' font-size='36' fill='%23545d59'%3E雪%3C/text%3E%3C/svg%3E">
   <link rel="preload" as="image" href="./assets/art-reference.png">
-  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./style.css?v=0.8.0">
 </head>
 <body>
   <main id="experience">
@@ -21,12 +21,13 @@
       <div class="intro-copy">
         <p class="eyebrow">唐 · 柳宗元</p>
         <h1 id="intro-title">江雪</h1>
-        <p class="intro-subtitle">走入一片無人的山水</p>
+        <p class="intro-subtitle">山雪途中，尋回一段往事</p>
+        <p class="intro-premise">前往永州途中，行李散落雪徑。<br>找回六件，收好再上路。</p>
         <button id="start" class="ink-button" disabled><span id="start-label">正在鋪開山水</span><span class="button-arrow" aria-hidden="true">↗</span></button>
         <button id="intro-help" class="text-button">操作方式 <span aria-hidden="true">＋</span></button>
         <p id="load-status" role="status">準備水墨世界中…</p>
       </div>
-      <div class="intro-foot"><span>雪境漫遊</span><span>自由探索 · 不用趕路</span></div>
+      <div class="intro-foot"><span>雪境漫遊</span><span>尋回行李 · 雪境漫遊</span></div>
     </section>
 
     <div id="mist-transition" aria-hidden="true"></div>
@@ -43,6 +44,12 @@
           <button id="pause" class="icon-button" aria-label="暫停探索" title="暫停"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg></button>
         </nav>
       </header>
+      <div class="journey-status">
+        <button id="open-luggage" class="text-button" aria-label="查看行李與已讀往事"><span>行囊</span><span id="luggage-count">0 / 6</span><span aria-hidden="true">＋</span></button>
+        <p id="journey-objective">找回散落行李，每次帶回一件。</p>
+        <p id="wagon-bearing" hidden></p>
+        <div id="task-progress" role="progressbar" aria-label="環境互動進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><span></span></div>
+      </div>
       <div class="reticle" aria-hidden="true"></div>
       <p id="feedback" role="status" aria-live="polite"></p>
       <div class="bottom-bar">
@@ -61,17 +68,49 @@
         <button id="close-menu" class="close-button" aria-label="關閉">×</button>
         <p class="eyebrow">江雪 · 雪境漫遊</p>
         <h2 id="menu-title">在山水間，慢慢走。</h2>
-        <p class="menu-description">沿雪徑登高，或走向江岸。停一停，聽聽風雪。</p>
+        <p class="menu-description">馬車停在路邊，六件行李散落山間。每次帶回一件，最後找回舊友送別信。</p>
         <div class="instructions">
           <div><span>行走</span><p><kbd>W A S D</kbd> 或 <kbd>↑ ↓</kbd>；觸控使用左下搖桿</p></div>
           <div><span>環顧</span><p>按住畫面拖曳；<kbd>← →</kbd> 轉身</p></div>
-          <div><span>互動</span><p>走近松樹或江岸，按 <kbd>E</kbd> 或畫面按鈕</p></div>
+          <div><span>互動</span><p>走近行李，按 <kbd>E</kbd> 移開遮擋物，再拾起；帶回車後放好</p></div>
           <div><span>呼喚</span><p><kbd>C</kbd>；山谷只有回聲</p></div>
         </div>
         <button id="resume" class="ink-button">繼續漫遊 <span aria-hidden="true">↗</span></button>
         <div class="menu-links"><button id="restart" class="text-button">回到起點</button><button id="reference" class="text-button">觀看美術原圖</button></div>
       </div>
     </dialog>
+    <dialog id="story-dialog" aria-labelledby="story-title">
+      <article class="story-sheet">
+        <p id="story-year" class="eyebrow"></p>
+        <h2 id="story-title"></h2>
+        <div id="story-art" class="story-art" aria-hidden="true"></div>
+        <p id="story-text" class="story-copy"></p>
+        <p id="story-detail" class="story-detail"></p>
+        <button id="story-continue" class="ink-button">繼續尋找 <span aria-hidden="true">↗</span></button>
+      </article>
+    </dialog>
+    <dialog id="luggage-dialog" aria-labelledby="luggage-title">
+      <article class="luggage-sheet">
+        <button id="close-luggage" class="close-button" aria-label="關閉行李清單">×</button>
+        <p class="eyebrow">山雪途中・散落的行李</p>
+        <h2 id="luggage-title">一件一件，帶回車上。</h2>
+        <p class="luggage-instruction">先移開遮擋物，再拾起。一次只帶一件；送別信最後尋回。</p>
+        <ol id="luggage-list"></ol>
+        <p class="fiction-note">馬車、尋物情節與送別信為教學創作。這片雪山並非真實貶謫路線；生平文字依據教育局教材。<a href="https://www.edb.gov.hk/attachment/tc/curriculum-development/kla/chi-edu/recommended-passages/KS2_13.pdf" target="_blank" rel="noopener">閱讀資料 ↗</a></p>
+      </article>
+    </dialog>
+    <section id="ending" hidden aria-labelledby="ending-title">
+      <div class="ending-copy">
+        <p class="eyebrow">六件行李・已全部歸還</p>
+        <h2 id="ending-title">故人遠，前路長。</h2>
+        <p class="farewell-words">這次分別，不知何日才能再見。<br>路途遙遠，望你珍重。</p>
+        <p class="ending-narrative">從前一起商議國事的同伴，如今各散遠方。<br>他把信收好，繼續走向陌生的永州。</p>
+        <div class="ending-afterword"><span>後來</span><p>柳宗元在永州遊山觀水，繼續寫詩作文。<br>《江雪》中的孤舟與漁翁，讓我們讀到孤獨，也讀到逆境中的堅持。</p></div>
+        <p class="ending-poem">千山鳥飛絕，萬徑人蹤滅。<br>孤舟蓑笠翁，獨釣寒江雪。</p>
+        <button id="journey-replay" class="ink-button">重新走一遍 <span aria-hidden="true">↗</span></button>
+        <p class="fiction-note">送別信為遊戲創作；《江雪》的確切創作年份未定。</p>
+      </div>
+    </section>
     <dialog id="reference-dialog" aria-label="選定的美術原圖">
       <img src="./assets/art-reference.png" alt="選定的淡墨江雪美術原圖：近景留白，遠山較深灰，江上孤舟。">
       <button id="close-reference" class="close-button" aria-label="返回操作說明">×</button>
@@ -79,6 +118,6 @@
     </dialog>
     <noscript><p class="noscript">請開啟 JavaScript，以進入三維水墨世界。</p></noscript>
   </main>
-  <script type="module" src="./main.js?v=0.7.0"></script>
+  <script type="module" src="./main.js?v=0.8.0"></script>
 </body>
 </html>

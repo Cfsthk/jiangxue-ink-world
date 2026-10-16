@@ -10,7 +10,7 @@ function seeded(seed) {
 
 // Merge by material without losing UVs or hard/smooth vertex normals. Thin
 // straw, woven lines and timber seams therefore cost no additional draw calls.
-class BrushBatch {
+export class BrushBatch {
   constructor() { this.parts = new Map(); }
   add(geometry, material, position = [0, 0, 0], rotation = [0, 0, 0], scale = [1, 1, 1]) {
     const matrix = new THREE.Matrix4().compose(v3(position), new THREE.Quaternion().setFromEuler(new THREE.Euler(...rotation)), v3(scale));
@@ -45,7 +45,7 @@ class BrushBatch {
   }
 }
 
-function tube(points, radius, endRadius = radius, segments = 12, sides = 5, profile = null) {
+export function tube(points, radius, endRadius = radius, segments = 12, sides = 5, profile = null) {
   const curve = new THREE.CatmullRomCurve3(points.map(v3));
   const frames = curve.computeFrenetFrames(segments, false);
   const positions = [], uvs = [], indices = [];
@@ -110,7 +110,7 @@ function hullPatch(a0, a1, inside = false, steps = 48, across = 2) {
   return geometry;
 }
 
-function timberBox(x, y, z) {
+export function timberBox(x, y, z) {
   const geometry = new THREE.BoxGeometry(x, y, z);
   const p = geometry.attributes.position, n = geometry.attributes.normal, uv = geometry.attributes.uv;
   const longX = x >= z;
@@ -488,7 +488,7 @@ export function buildBrushPine(palette, { size = 1, seed = 1, variant = null } =
 }
 
 /** Small rooted winter plants for road edges and the deserted beach. */
-export function buildWinterPlant(palette, { kind = 'grass', type = null, size = 1, seed = 1 } = {}) {
+export function buildWinterPlant(palette, { kind = 'grass', type = null, size = 1, seed = 1, softSnow = false } = {}) {
   const root = new THREE.Group();
   const b = new BrushBatch(), r = seeded(seed);
   const { branchMaterial: bark, foliageMaterial: foliage, snowMaterial: snow } = palette;
@@ -497,7 +497,7 @@ export function buildWinterPlant(palette, { kind = 'grass', type = null, size = 
   root.name = `冬植・${plantKind}`;
 
   const addSnowFleck = (center, radius = .045, depth = radius * .62) => {
-    b.add(new THREE.SphereGeometry(1, 6, 4), snow, center, [0, 0, 0], [radius, .018 + radius * .16, depth]);
+    b.add(new THREE.SphereGeometry(1, softSnow ? 16 : 6, softSnow ? 10 : 4), snow, center, [0, 0, 0], [radius, .018 + radius * .16, depth]);
   };
   const addStem = (points, material, startRadius, endRadius, segments = 6, sides = 4) => {
     b.add(tube(points, startRadius, endRadius, segments, sides), material);
