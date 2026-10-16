@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.module.js';
-import { BrushBatch, tube, timberBox } from './props.js?v=1.4.0';
-import { createRigPaint, addRigBleed } from './painted-rig.js?v=1.4.0';
+import { BrushBatch, tube, timberBox } from './props.js?v=1.4.1';
+import { createRigPaint, addRigBleed } from './painted-rig.js?v=1.4.1';
 const TAU=Math.PI*2;
 
 function softBox(w,h,d,seed=1) {

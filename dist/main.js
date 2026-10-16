@@ -1,8 +1,8 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=1.4.0';
-import { Soundscape } from './audio.js?v=1.4.0';
-import { InkWash } from './wash.js?v=1.4.0';
-import { createGroundSnow } from './ground-snow.js?v=1.4.0';
+import { createWorld } from './world.js?v=1.4.1';
+import { Soundscape } from './audio.js?v=1.4.1';
+import { InkWash } from './wash.js?v=1.4.1';
+import { createGroundSnow } from './ground-snow.js?v=1.4.1';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');

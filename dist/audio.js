@@ -124,14 +124,14 @@ export class Soundscape {
     this.noiseBurst({ duration: 0.3, volume: 0.037, low: 120, high: 1350, delay: 0.32, attack: 0.04 });
   }
 
-  /** A few unhurried pentatonic plucks, followed by a long stretch of wind.
+  /** Unhurried pentatonic plucks with shorter spaces for wind between phrases.
    * The frame clock schedules only the current phrase, so returning from a
    * paused / hidden tab cannot play a backlog of missed music. */
   queuePipaPhrase() {
     if (!this.canPlay()) return;
     const now = this.context.currentTime;
     if (this.nextPhraseAt === null) {
-      this.nextPhraseAt = now + 5 + Math.random() * 4;
+      this.nextPhraseAt = now + 1 + Math.random();
       return;
     }
     if (now < this.nextPhraseAt) return;
@@ -143,15 +143,15 @@ export class Soundscape {
     ];
     const notes = motifs[Math.floor(Math.random() * motifs.length)];
     const { wind, shelter } = this.environment;
-    // Keep the instrument below the wind, including its quieter lulls.
-    const mix = 0.0095 * (0.85 + wind * 0.15) * (1 - shelter * 0.12);
+    // Give the short, rapidly decaying plucks enough presence above the wind.
+    const mix = 0.055 * (0.85 + wind * 0.15) * (1 - shelter * 0.12);
     notes.forEach(([frequency, delay], index) => {
       this.pluckPipa(frequency, mix * (index === 0 ? 1 : 0.88), delay);
     });
     this.phrasesPlayed++;
     this.lastPhraseAt = now;
     this.lastMusicMix = mix;
-    this.nextPhraseAt = now + notes.at(-1)[1] + 16 + Math.random() * 12;
+    this.nextPhraseAt = now + notes.at(-1)[1] + 5 + Math.random() * 3;
   }
 
   /** A damped plucked string with a small wooden-body resonance and nail
@@ -338,7 +338,7 @@ export class Soundscape {
         instrument: 'pipa', phrasesPlayed: this.phrasesPlayed,
         nextPhraseAt: this.nextPhraseAt, lastPhraseAt: this.lastPhraseAt,
         activePlucks: this.musicSources.size, mix: this.lastMusicMix,
-        firstDelaySeconds: [5, 9], gapSeconds: [16, 28],
+        firstDelaySeconds: [1, 2], gapSeconds: [5, 8],
         noteSpacingSeconds: [1.5, 1.9], phraseNotes: [3, 4],
       }),
     });

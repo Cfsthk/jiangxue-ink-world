@@ -1,5 +1,5 @@
 import * as THREE from './vendor/three.module.js';
-import { createBirdRoute, routeLength, pointOnRoute, nearestRouteDistance } from './bird-route.js?v=1.4.0';
+import { createBirdRoute, routeLength, pointOnRoute, nearestRouteDistance } from './bird-route.js?v=1.4.1';
 
 // The trail visits all five keepsakes before taking the full collection to the cart.
 export function inkTrailDestination(state,items,depositPosition){
