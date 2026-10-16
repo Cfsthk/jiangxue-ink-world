@@ -1,7 +1,7 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=0.5.0';
-import { Soundscape } from './audio.js?v=0.5.0';
-import { InkWash } from './wash.js?v=0.5.0';
+import { createWorld } from './world.js?v=0.6.0';
+import { Soundscape } from './audio.js?v=0.6.0';
+import { InkWash } from './wash.js?v=0.6.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
@@ -17,6 +17,7 @@ const player = { x: -32, z: 44, y: 0, yaw: -.85, pitch: -.08, targetYaw: -.85, t
 const joy = { x: 0, y: 0, id: null };
 let renderer, camera, world, wash;
 let lastTime = performance.now(), footDistance = 0, lastPlayer = null, feedbackTimer, callTime = -100, interactionTime = -100;
+let echoAt = Infinity, lastStepSound = -100;
 let drag = null, focusUntil = 0, frameSamples = 0, fpsTime = 0;
 let nextFoot = 1, snowCount = 0;
 const footprints = [], effects = [];
@@ -50,6 +51,7 @@ function syncSound() {
 
 function openMenu() {
   clearInput();
+  echoAt = Infinity;
   state.paused = true;
   $('resume').textContent = state.started ? '繼續漫遊 ↗' : '返回畫面 ↗';
   $('restart').hidden = !state.started;
@@ -77,6 +79,15 @@ function restart() {
   footDistance = 0;
   nextFoot = 1;
   focusUntil = 0;
+  for (const effect of effects) disposeEffect(effect.object);
+  effects.length = 0;
+  echoAt = Infinity;
+  callTime = interactionTime = lastStepSound = -100;
+  state.target = null;
+  $('interact').hidden = true;
+  clearTimeout(feedbackTimer);
+  $('feedback').classList.remove('visible');
+  sound.resetTransients();
   closeMenu();
 }
 
@@ -138,7 +149,8 @@ function addFootprint() {
   effectRoot.add(mesh);
   footprints.push({ mesh, born: state.time });
   if (footprints.length > 140) { const old = footprints.shift(); effectRoot.remove(old.mesh); old.mesh.geometry.dispose(); old.mesh.material.dispose(); }
-  sound.step();
+  // Keep the walking sound unhurried even when travelling between distant paths.
+  if (state.time - lastStepSound >= .58) { sound.step(); lastStepSound = state.time; }
 }
 
 function addRipple(x, z) {
@@ -154,6 +166,10 @@ function addRipple(x, z) {
 function throwStone() {
   const start = new THREE.Vector3(player.x + .22, player.y - .35, player.z);
   const end = new THREE.Vector3(Math.max(8, player.x + 11), .05, player.z - 5);
+  // Turn gently toward the water so a throw remains visible even when looking inland.
+  const direction = Math.atan2(-(end.x-player.x), -(end.z-player.z));
+  player.targetYaw = player.yaw + Math.atan2(Math.sin(direction-player.yaw), Math.cos(direction-player.yaw));
+  player.targetPitch = Math.atan2(end.y-player.y, Math.hypot(end.x-player.x,end.z-player.z));
   const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(.065, 0), new THREE.MeshBasicMaterial({ color: '#8b9290' }));
   mesh.position.copy(start); effectRoot.add(mesh);
   effects.push({ type: 'stone', object: mesh, age: 0, life: 1.1, start, end });
@@ -179,7 +195,7 @@ function call() {
   callTime = state.time;
   sound.call();
   notify('有人嗎？', 1800);
-  setTimeout(() => { if (isPlaying()) notify('回聲漸遠，無人應答。', 4000); }, 2300);
+  echoAt = state.time + 2.3;
 }
 
 function interact() {
@@ -214,7 +230,16 @@ function detectInteraction() {
   document.querySelector('.reticle').classList.toggle('active', Boolean(nearest));
 }
 
+function disposeEffect(object) {
+  effectRoot.remove(object);
+  object.traverse(child => {
+    if (child.geometry && child.geometry !== rippleGeometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  });
+}
+
 function updateEffects(dt) {
+  if (isPlaying() && state.time >= echoAt) { echoAt = Infinity; notify('回聲漸遠，無人應答。', 4000); }
   for (let i = footprints.length - 1; i >= 0; i--) {
     const foot = footprints[i], age = state.time - foot.born;
     foot.mesh.material.opacity = .64 * (1 - THREE.MathUtils.smoothstep(age, 2, 21));
@@ -238,8 +263,7 @@ function updateEffects(dt) {
       p.needsUpdate = true; e.object.material.opacity = .9 * Math.max(0, 1 - e.age / e.life);
     }
     if (e.age >= e.life) {
-      effectRoot.remove(e.object);
-      e.object.traverse(child => { if (child.geometry && child.geometry !== rippleGeometry) child.geometry.dispose(); if (child.material) child.material.dispose(); });
+      disposeEffect(e.object);
       effects.splice(i, 1);
     }
   }
@@ -272,14 +296,17 @@ function move(dt) {
 }
 
 function addWeather() {
-  const count = matchMedia('(pointer:coarse)').matches ? 2600 : 4600;
+  const count = matchMedia('(pointer:coarse)').matches ? 4200 : 7600;
   snowCount = count;
-  const positions = new Float32Array(count * 3), sizes = new Float32Array(count), phases = new Float32Array(count), speed = [];
+  const positions = new Float32Array(count * 3), sizes = new Float32Array(count), phases = new Float32Array(count), speed = [], spans = [];
   for (let i = 0; i < count; i++) {
-    positions.set([player.x+(Math.random()-.5)*72,player.y-10+Math.random()*38,player.z+(Math.random()-.5)*72],i*3);
-    sizes[i]=.035+Math.pow(Math.random(),2)*.10;
+    // A close veil gives the snowfall depth; a broader layer still reaches the ridges.
+    const span = i % 5 === 0 ? 32 : 64;
+    spans.push(span);
+    positions.set([player.x+(Math.random()-.5)*span,player.y-10+Math.random()*38,player.z+(Math.random()-.5)*span],i*3);
+    sizes[i]=.045+Math.pow(Math.random(),2)*.115;
     phases[i]=Math.random()*Math.PI*2;
-    speed.push(.65+Math.random()*1.10);
+    speed.push(.95+Math.random()*1.35);
   }
   const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('aSize',new THREE.BufferAttribute(sizes,1));
@@ -290,8 +317,8 @@ function addWeather() {
     vertexShader:`attribute float aSize; attribute float aPhase; uniform float uScale;
       varying float vAlpha; varying float vPhase;
       void main(){ vec4 p=modelViewMatrix*vec4(position,1.); gl_Position=projectionMatrix*p;
-        gl_PointSize=clamp(aSize*uScale/max(1.,-p.z),1.2,15.);
-        vAlpha=(.44+.26*sin(aPhase*2.3))*(1.-smoothstep(12.,45.,-p.z)); vPhase=aPhase; }`,
+        gl_PointSize=clamp(aSize*uScale/max(1.,-p.z),1.35,18.);
+        vAlpha=(.58+.23*sin(aPhase*2.3))*(1.-smoothstep(14.,45.,-p.z)); vPhase=aPhase; }`,
     fragmentShader:`varying float vAlpha; varying float vPhase;
       void main(){vec2 p=gl_PointCoord-.5; float a=atan(p.y,p.x);
         float r=length(p)+.025*sin(a*5.+vPhase)+.018*sin(a*9.);
@@ -303,7 +330,8 @@ function addWeather() {
   const snow = new THREE.Points(geometry, material);
   snow.frustumCulled = false; world.scene.add(snow);
   return dt => {
-    const drift=.24+Math.sin(state.time*.29)*.14, motion=reducedMotion ? .5 : 1;
+    const gust = .5 + .3*Math.sin(state.time*.37) + .2*Math.sin(state.time*.83+1.4);
+    const drift=.20+gust*.64, motion=reducedMotion ? .5 : 1;
     for (let i = 0; i < count; i++) {
       const j=i*3;
       positions[j]+=dt*(drift+Math.sin(state.time*.65+phases[i])*.13)*motion;
@@ -311,8 +339,9 @@ function addWeather() {
       positions[j+2]+=dt*Math.sin(phases[i]+state.time*.36)*.08*motion;
       if(positions[j+1]<player.y-10)positions[j+1]=player.y+28;
       if(positions[j+1]>player.y+28)positions[j+1]=player.y-10;
-      if(positions[j]>player.x+36)positions[j]-=72; else if(positions[j]<player.x-36)positions[j]+=72;
-      if(positions[j+2]>player.z+36)positions[j+2]-=72; else if(positions[j+2]<player.z-36)positions[j+2]+=72;
+      const span=spans[i], half=span*.5;
+      if(positions[j]>player.x+half)positions[j]-=span; else if(positions[j]<player.x-half)positions[j]+=span;
+      if(positions[j+2]>player.z+half)positions[j+2]-=span; else if(positions[j+2]<player.z-half)positions[j+2]+=span;
     }
     material.uniforms.uScale.value=innerHeight*renderer.getPixelRatio()*.94;
     geometry.attributes.position.needsUpdate = true;
@@ -367,7 +396,7 @@ function init() {
       console.error('水墨素材載入失敗', error);
       $('load-status').textContent = '水墨素材未能載入，請重新整理再試。';
     });
-    window.__JIANGXUE__ = Object.freeze({ getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length }) });
+    window.__JIANGXUE__ = Object.freeze({ getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.() }) });
   } catch (error) {
     console.error('江雪世界載入失敗', error);
     $('start-label').textContent = '重新載入'; $('start').disabled = false;

@@ -12,9 +12,9 @@ export function createRiverMaterial() {
       // THREE.Color converts these sRGB art colours to shader linear space.
       uWater: { value: new THREE.Color('#becfd4') },
       uWash: { value: new THREE.Color('#c7ccca') },
-      uInk: { value: new THREE.Color('#8da5ab') },
-      uLightWash: { value: new THREE.Color('#d5dfdf') },
-      uShoreMist: { value: new THREE.Color('#f4f4ef') },
+      uInk: { value: new THREE.Color('#829da4') },
+      uLightWash: { value: new THREE.Color('#d1dcdd') },
+      uShoreMist: { value: new THREE.Color('#e0e4e1') },
     },
     vertexShader: /* glsl */`
       varying vec3 vRiverWorld;
@@ -56,17 +56,18 @@ export function createRiverMaterial() {
 
       void main() {
         float t = uTime;
+        float flowTime = t * 1.5;
         vec2 p = vRiverWorld.xz;
-        // The current runs down the river at 0.23 m/s. A short observation
-        // reveals the moving broken strokes, without rapid shimmer or waves.
-        vec2 flow = p - vec2(t * 0.050, t * 0.220);
-        flow.x += sin(p.y * 0.028 + t * 0.12) * 0.34;
+        // The current runs down the river at a restrained 1.5x wash rate. A
+        // single time base keeps pigment, edges and broken strokes together.
+        vec2 flow = p - vec2(flowTime * 0.050, flowTime * 0.220);
+        flow.x += sin(p.y * 0.028 + flowTime * 0.12) * 0.34;
 
         // Three substantial paint regions are all grey or grey-blue, including
         // the lightest wash. The river contains no white paper core or bright
         // highlight. Domain warping keeps the painted patches irregular.
         vec2 regionUV = flow * vec2(0.112, 0.030);
-        regionUV.x += sin(regionUV.y * 1.71 + t * 0.065) * 0.34;
+        regionUV.x += sin(regionUV.y * 1.71 + flowTime * 0.065) * 0.34;
         regionUV.y += sin(regionUV.x * 1.33) * 0.13;
         float broad = softNoise(regionUV + vec2(3.7, 8.1));
         float wash = softNoise(regionUV * vec2(1.83, 1.37) + vec2(21.0, 7.0));
@@ -97,28 +98,32 @@ export function createRiverMaterial() {
 
         float strokeWarp = softNoise(flow * vec2(0.15, 0.081) + vec2(64.0, 13.0));
         float phaseA = flow.x * 0.61
-                     + sin(flow.y * 0.145 + t * 0.16) * 0.96
+                     + sin(flow.y * 0.145 + flowTime * 0.16) * 0.96
                      + sin(flow.y * 0.041 - flow.x * 0.022) * 0.61
-                     + (strokeWarp - 0.5) * 1.65;
+                     + (strokeWarp - 0.5) * 2.15
+                     + sin(flow.x * 0.083 + flow.y * 0.097 + flowTime * 0.08) * 0.34;
         float phaseB = flow.x * 0.88
-                     + sin(flow.y * 0.187 - t * 0.11) * 0.72
+                     + sin(flow.y * 0.187 - flowTime * 0.11) * 0.72
                      + sin(flow.y * 0.067 + flow.x * 0.031) * 0.29
-                     + wash * 0.58 + (bleed - 0.5) * 0.45;
+                     + wash * 0.58 + (bleed - 0.5) * 0.62
+                     + sin(flow.x * 0.051 - flow.y * 0.12 + flowTime * 0.06) * 0.21;
 
         // These roughly 0.12–0.23 m strokes are wide enough to survive the
         // mountain-top view. The long broken masks prevent a regular grid.
         float islands = softNoise(flow * vec2(0.28, 0.13) + vec2(4.0, 2.0));
         float fibres = softNoise(flow * vec2(1.5, 0.91));
         float gapsA = smoothstep(0.28, 0.61, islands)
-                    * smoothstep(0.16, 0.55, fibres);
+                    * smoothstep(0.16, 0.55, fibres)
+                    * (0.72 + 0.28 * softNoise(flow * vec2(0.43, 0.17) + vec2(17.0, 29.0)));
         float gapsB = smoothstep(0.39, 0.69, softNoise(flow * vec2(0.41, 0.16) + 32.0))
-                    * smoothstep(0.15, 0.60, softNoise(flow * vec2(1.9, 1.1) + 9.0));
-        float breathA = 0.82 + 0.18 * sin(t * 0.58 + broad * 5.0);
-        float breathB = 0.79 + 0.21 * sin(t * 0.71 + wash * 6.0);
+                    * smoothstep(0.15, 0.60, softNoise(flow * vec2(1.9, 1.1) + 9.0))
+                    * (0.68 + 0.32 * softNoise(flow * vec2(0.31, 0.21) + vec2(41.0, 5.0)));
+        float breathA = 0.82 + 0.18 * sin(flowTime * 0.58 + broad * 5.0);
+        float breathB = 0.79 + 0.21 * sin(flowTime * 0.71 + wash * 6.0);
         float inkA = rippleStroke(phaseA, 0.078) * gapsA * breathA;
         float inkB = rippleStroke(phaseB, 0.055) * gapsB * breathB;
         float distanceFade = 1.0 - smoothstep(100.0, 360.0, vRiverDepth) * 0.13;
-        color = mix(color, uInk, clamp((inkA * 0.73 + inkB * 0.51) * distanceFade, 0.0, 0.77));
+        color = mix(color, uInk, clamp((inkA * 0.82 + inkB * 0.60) * distanceFade, 0.0, 0.80));
 
         // Light-grey companion strokes stay inside the muted grey-blue
         // palette. They never become white foam or sparkling highlights.
@@ -132,6 +137,16 @@ export function createRiverMaterial() {
         float mistWidth=8.0+softNoise(p*vec2(0.08,0.13))*6.0;
         float shoreMist=1.0-smoothstep(0.0,mistWidth,shoreDistance);
         color=mix(color,uShoreMist,shoreMist*0.98);
+
+        // The water mesh has a west edge at x=-25. Fade that distant edge into
+        // the same grey mist before the finite plane can read as a blue wedge.
+        // A low-frequency offset keeps the transition broken like a wash rather
+        // than drawing a second straight shoreline.
+        float westEdgeDistance=p.x+25.0;
+        float edgeBreak=(softNoise(vec2(p.y*0.055,p.x*0.11)+vec2(73.0,11.0))-0.5)*4.2;
+        float westEdgeMist=1.0-smoothstep(0.0,21.0,westEdgeDistance+edgeBreak);
+        westEdgeMist*=0.72+0.28*softNoise(vec2(p.y*0.095,p.x*0.16)+vec2(31.0,47.0));
+        color=mix(color,uShoreMist,westEdgeMist*0.94);
 
         gl_FragColor = vec4(color, 1.0);
         #include <colorspace_fragment>

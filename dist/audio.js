@@ -7,12 +7,16 @@ export class Soundscape {
     this.disposed = false;
     this.layers = [];
     this.activeSources = new Set();
+    this.transientGains = new Map();
     this.timeouts = new Set();
     this.environment = { wind: 0.45, river: 0, shelter: 0 };
     this.lastStep = -Infinity;
     this.lastCall = -Infinity;
     this.callInProgress = false;
     this.callToken = 0;
+    this.stepInterval = 0.55;
+    this.lastStepDuration = 0;
+    this.windScheduledUntil = 0;
   }
 
   /** Call this from the start / audio button's click handler. */
@@ -28,36 +32,32 @@ export class Soundscape {
       this.master.connect(ctx.destination);
       this.noise = this.makeNoise(false);
       this.darkNoise = this.makeNoise(true);
-      this.wind = this.makeLayer(this.darkNoise, 65, 620);
+      this.snowNoise = this.makeSnowNoise();
+      this.windGust = ctx.createGain();
+      this.windGust.gain.value = 0.38;
+      this.windGust.connect(this.master);
+      this.wind = this.makeLayer(this.darkNoise, 65, 620, this.windGust);
       this.river = this.makeLayer(this.noise, 230, 1850);
-      // An almost imperceptible, slow movement in the wind; never a musical tone.
-      const drift = ctx.createOscillator();
-      const depth = ctx.createGain();
-      drift.type = 'sine';
-      drift.frequency.value = 0.071;
-      depth.gain.value = 110;
-      drift.connect(depth);
-      depth.connect(this.wind.lowpass.frequency);
-      drift.start();
-      this.layers.push(drift);
     }
     if (this.context.state === 'suspended') await this.context.resume();
     if (this.disposed) return;
     this.ramp(this.master.gain, this.muted ? 0 : 0.48, 0.65);
     this.update(this.environment);
+    this.queueWindGusts(true);
   }
 
   setMuted(value) {
+    const changed = this.muted !== Boolean(value);
     this.muted = Boolean(value);
     if (this.master) this.ramp(this.master.gain, this.muted ? 0 : 0.48, 0.35);
     if (this.muted) {
       this.cancelCall();
-      if (this.context) {
-        for (const source of this.activeSources) {
-          try { source.stop(this.context.currentTime + 0.36); } catch (_) { /* Already finished. */ }
-        }
+      this.fadeTransients();
+      if (this.context && this.windGust) {
+        this.ramp(this.windGust.gain, 0.38, 0.4);
+        this.windScheduledUntil = 0;
       }
-    }
+    } else if (changed) this.queueWindGusts(true);
   }
 
   /** Values are clamped to 0–1. Safe to call once per animation frame. */
@@ -69,17 +69,52 @@ export class Soundscape {
     const { wind, river, shelter } = this.environment;
     // Exponential smoothing avoids gain discontinuities as the player crosses a zone.
     const now = this.context.currentTime;
-    this.wind.gain.gain.setTargetAtTime((0.008 + wind * 0.043) * (1 - shelter * 0.83), now, 0.85);
+    this.wind.gain.gain.setTargetAtTime((0.011 + wind * 0.060) * (1 - shelter * 0.83), now, 0.85);
     this.river.gain.gain.setTargetAtTime(river * river * 0.037 * (1 - shelter * 0.58), now, 1.15);
+    this.queueWindGusts();
+  }
+
+  /** Native gain automation makes real gusts; random rise, hold and lull lengths
+   * avoid the fixed rhythm of a looping oscillator or a filter-only effect. */
+  queueWindGusts(reset = false) {
+    if (!this.canPlay() || !this.windGust) return;
+    const now = this.context.currentTime, gain = this.windGust.gain, filter = this.wind.lowpass.frequency;
+    if (reset || this.windScheduledUntil < now) {
+      this.ramp(gain, 0.38, 0.55);
+      this.ramp(filter, 420, 0.55);
+      this.windScheduledUntil = now + 0.55;
+    }
+    while (this.windScheduledUntil < now + 24) {
+      const peak = 0.95 + Math.random() * 0.85;
+      const lull = 0.20 + Math.random() * 0.29;
+      const riseEnd = this.windScheduledUntil + 2.0 + Math.random() * 2.8;
+      const holdEnd = riseEnd + 0.3 + Math.random() * 1.0;
+      const fallEnd = holdEnd + 2.8 + Math.random() * 2.7;
+      const quietEnd = fallEnd + 0.6 + Math.random() * 1.8;
+      gain.linearRampToValueAtTime(peak, riseEnd);
+      gain.setValueAtTime(peak, holdEnd);
+      gain.linearRampToValueAtTime(lull, fallEnd);
+      gain.setValueAtTime(lull, quietEnd);
+      filter.linearRampToValueAtTime(500 + peak * 160, riseEnd);
+      filter.setValueAtTime(500 + peak * 160, holdEnd);
+      filter.linearRampToValueAtTime(340 + lull * 200, fallEnd);
+      filter.setValueAtTime(340 + lull * 200, quietEnd);
+      this.windScheduledUntil = quietEnd;
+    }
   }
 
   step() {
     if (!this.canPlay()) return;
     const now = this.context.currentTime;
-    if (now - this.lastStep < 0.24) return;
+    if (now - this.lastStep < this.stepInterval) return;
     this.lastStep = now;
-    this.noiseBurst({ duration: 0.19, volume: 0.075, low: 145, high: 1050, attack: 0.015 });
-    this.noiseBurst({ duration: 0.10, volume: 0.025, low: 1000, high: 3400, delay: 0.03, attack: 0.006 });
+    const weight = 0.94 + Math.random() * 0.12;
+    // A slow weight compression, broken snow crystals, then a soft sole drag.
+    // All three tails end by 0.56 s; there is no rapid clicking footstep loop.
+    this.noiseBurst({ duration: 0.33, volume: 0.15 * weight, low: 85, high: 720, attack: 0.035, hold: 0.075, buffer: this.darkNoise });
+    this.noiseBurst({ duration: 0.40, volume: 0.105 * weight, low: 530, high: 3150, delay: 0.035, attack: 0.025, hold: 0.09, buffer: this.snowNoise });
+    this.noiseBurst({ duration: 0.36, volume: 0.068 * weight, low: 220, high: 1550, delay: 0.16, attack: 0.06, hold: 0.045, buffer: this.snowNoise });
+    this.lastStepDuration = 0.56;
   }
 
   rustle() {
@@ -167,7 +202,23 @@ export class Soundscape {
     return buffer;
   }
 
-  makeLayer(buffer, low, high) {
+  makeSnowNoise() {
+    const ctx = this.context, buffer = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
+    const samples = buffer.getChannelData(0);
+    let grainLength = 1, grainPosition = 1, grainWeight = 0.7;
+    for (let i = 0; i < samples.length; i++) {
+      if (++grainPosition >= grainLength) {
+        grainLength = Math.floor(ctx.sampleRate * (0.003 + Math.random() * 0.010));
+        grainPosition = 0;
+        grainWeight = 0.40 + Math.random() * 0.60;
+      }
+      const grain = Math.sin(grainPosition / grainLength * Math.PI) ** 2;
+      samples[i] = (Math.random() * 2 - 1) * (0.10 + grain * grainWeight * 0.48);
+    }
+    return buffer;
+  }
+
+  makeLayer(buffer, low, high, destination = this.master) {
     const ctx = this.context;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
@@ -182,17 +233,17 @@ export class Soundscape {
     lowpass.Q.value = 0.5;
     const gain = ctx.createGain();
     gain.gain.value = 0;
-    source.connect(highpass).connect(lowpass).connect(gain).connect(this.master);
+    source.connect(highpass).connect(lowpass).connect(gain).connect(destination);
     source.start(0, Math.random() * buffer.duration);
     this.layers.push(source);
     return { source, gain, lowpass };
   }
 
-  noiseBurst({ duration, volume, low, high, delay = 0, attack = 0.015 }) {
+  noiseBurst({ duration, volume, low, high, delay = 0, attack = 0.015, hold = 0, buffer = this.noise }) {
     const ctx = this.context;
     const start = ctx.currentTime + delay;
     const source = ctx.createBufferSource();
-    source.buffer = this.noise;
+    source.buffer = buffer;
     const hp = ctx.createBiquadFilter();
     hp.type = 'highpass';
     hp.frequency.value = low;
@@ -204,10 +255,11 @@ export class Soundscape {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0, start);
     gain.gain.linearRampToValueAtTime(volume, start + attack);
+    if (hold > 0) gain.gain.setValueAtTime(volume, start + Math.min(duration - 0.02, attack + hold));
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
     gain.gain.linearRampToValueAtTime(0, start + duration + 0.025);
     source.connect(hp).connect(lp).connect(gain).connect(this.master);
-    this.track(source, [hp, lp, gain]);
+    this.track(source, [hp, lp, gain], gain.gain);
     source.start(start, Math.random() * 2);
     source.stop(start + duration + 0.04);
   }
@@ -225,15 +277,17 @@ export class Soundscape {
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
     gain.gain.linearRampToValueAtTime(0, start + duration + 0.03);
     source.connect(gain).connect(this.master);
-    this.track(source, [gain]);
+    this.track(source, [gain], gain.gain);
     source.start(start);
     source.stop(start + duration + 0.04);
   }
 
-  track(source, nodes) {
+  track(source, nodes, gain) {
     this.activeSources.add(source);
+    if (gain) this.transientGains.set(source, gain);
     source.onended = () => {
       this.activeSources.delete(source);
+      this.transientGains.delete(source);
       source.disconnect();
       for (const node of nodes) node.disconnect();
     };
@@ -241,9 +295,42 @@ export class Soundscape {
 
   ramp(param, value, duration) {
     const now = this.context.currentTime;
-    param.cancelScheduledValues(now);
-    param.setValueAtTime(param.value, now);
+    if (typeof param.cancelAndHoldAtTime === 'function') param.cancelAndHoldAtTime(now);
+    else { const current = param.value; param.cancelScheduledValues(now); param.setValueAtTime(current, now); }
     param.linearRampToValueAtTime(value, now + duration);
+  }
+
+  fadeTransients() {
+    if (!this.context) return;
+    const now = this.context.currentTime;
+    for (const source of this.activeSources) {
+      const gain = this.transientGains.get(source);
+      if (gain) this.ramp(gain, 0, 0.04);
+      try { source.stop(now + 0.05); } catch (_) { /* Already finished. */ }
+    }
+  }
+
+  /** Restart cleanup: cancel scheduled calls/echoes and footfalls, leave the
+   * environmental layers intact, and permit the new journey's first action. */
+  resetTransients() {
+    this.cancelCall();
+    this.fadeTransients();
+    this.lastStep = -Infinity;
+    this.lastCall = -Infinity;
+    this.lastStepDuration = 0;
+  }
+
+  reset() { this.resetTransients(); }
+
+  getDiagnostics() {
+    return Object.freeze({
+      running: this.context?.state === 'running', muted: this.muted,
+      gustGain: this.windGust?.gain.value ?? 0,
+      gustScheduledUntil: this.windScheduledUntil,
+      lastStep: Number.isFinite(this.lastStep) ? this.lastStep : null,
+      stepInterval: this.stepInterval, lastStepDuration: this.lastStepDuration,
+      activeTransients: this.activeSources.size, callInProgress: this.callInProgress,
+    });
   }
 
   later(fn, ms) {
@@ -273,6 +360,8 @@ export class Soundscape {
     }
     this.layers.length = 0;
     this.activeSources.clear();
+    this.transientGains.clear();
+    this.windGust?.disconnect();
     this.master?.disconnect();
     this.context?.close().catch(() => {});
   }

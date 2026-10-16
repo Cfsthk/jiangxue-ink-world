@@ -1,8 +1,8 @@
 import * as THREE from './vendor/three.module.js';
-import { createBrushMaterials } from './ink-materials.js?v=0.5.0';
-import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=0.5.0';
-import { createRiverMaterial } from './river.js?v=0.5.0';
-import { createMountainSurround } from './mountains.js?v=0.5.0';
+import { createBrushMaterials } from './ink-materials.js?v=0.6.0';
+import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=0.6.0';
+import { createRiverMaterial } from './river.js?v=0.6.0';
+import { createMountainSurround } from './mountains.js?v=0.6.0';
 
 // Walkable terrain, weathered stone, pines and the boat are real 3D.
 // Chinese brush pigments wrap their surfaces; distant paintings complete the view.
@@ -46,7 +46,7 @@ export function createWorld() {
   let maxPathSampleSpacing=0;
   const rockSnowMaterials = new Map();
   const palette = createBrushMaterials();
-  const { inkMaterial, snowMaterial, stoneMaterial, cliffMaterial, branchMaterial, foliageMaterial, distantMaterials } = palette;
+  const { inkMaterial, snowMaterial, terrainMaterial, stoneMaterial, cliffMaterial, branchMaterial, foliageMaterial, distantMaterials } = palette;
   let randomSeed = 198406;
   function rand() {
     randomSeed = (randomSeed * 1664525 + 1013904223) >>> 0;
@@ -107,37 +107,36 @@ export function createWorld() {
   groundGeometry.setAttribute('uv',new THREE.Float32BufferAttribute(terrainUV,2));
   groundGeometry.setIndex(indices);
   groundGeometry.computeVertexNormals();
-  // A little exposed bedrock breaks through the snow on the steep folds.
-  const terrainVertices=groundGeometry.attributes.position;
-  const terrainGroups=[[],[]];
-  for(let t=0;t<indices.length;t+=3){
-    const ia=indices[t],ib=indices[t+1],ic=indices[t+2];
-    const a=new THREE.Vector3().fromBufferAttribute(terrainVertices,ia),b=new THREE.Vector3().fromBufferAttribute(terrainVertices,ib),c=new THREE.Vector3().fromBufferAttribute(terrainVertices,ic);
-    const normal=new THREE.Vector3().subVectors(b,a).cross(new THREE.Vector3().subVectors(c,a)).normalize();
-    const x=(a.x+b.x+c.x)/3,z=(a.z+b.z+c.z)/3;
-    const fold=Math.sin(x*.27+z*.19)+Math.sin(x*.57-z*.32)*.55;
-    const material=(normal.y<.81 && x<-19 && fold>.88)?1:0;
-    terrainGroups[material].push(ia,ib,ic);
-  }
-  groundGeometry.setIndex([...terrainGroups[0],...terrainGroups[1]]);
-  groundGeometry.addGroup(0,terrainGroups[0].length,0);
-  groundGeometry.addGroup(terrainGroups[0].length,terrainGroups[1].length,1);
-  const terrain = new THREE.Mesh(groundGeometry, [snowMaterial,stoneMaterial]);
+  // Snow and exposed bedrock blend continuously in one shader, across the
+  // shared vertex normals, rather than changing material at triangle edges.
+  const terrain = new THREE.Mesh(groundGeometry, terrainMaterial);
   terrain.name = 'continuous-snow-terrain';
   scene.add(terrain);
 
-  // Tiny exposed bank faces make the land and its water level legible.
-  const bankPositions = [], bankIndices = [], bankUV = [];
-  for (let i = 0; i <= 172; i++) {
-    const z = i - 86, x = bank(z);
-    bankPositions.push(x,heightAt(x,z),z, x+.15,-.65,z);bankUV.push(z/6,1,z/6,0);
-    if (i < 172) { const n=i*2;bankIndices.push(n,n+1,n+2,n+1,n+3,n+2); }
+  // A narrow rounded lip joins the snow to the submerged bank.  The top
+  // shares the terrain normal, so it does not read as a sharp pasted-on strip.
+  const bankPositions = [], bankIndices = [], bankUV = [], bankSnow = [];
+  const bankProfile=[[0,0],[.024,.025],[.065,.13],[.105,.36],[.14,.78],[.15,1.30]],bankRows=344;
+  for (let i = 0; i <= bankRows; i++) {
+    const z = i/bankRows*172-86, x = bank(z),top=heightAt(x,z);
+    for(let j=0;j<bankProfile.length;j++){
+      const [offset,drop]=bankProfile[j];
+      bankPositions.push(x+offset,top-drop,z);bankUV.push(z/6,1-drop/1.3);bankSnow.push(1-drop/1.3);
+      if(i<bankRows&&j<bankProfile.length-1){const n=i*bankProfile.length+j,m=n+bankProfile.length;bankIndices.push(n,m,n+1,n+1,m,m+1);}
+    }
   }
   const bankGeometry = new THREE.BufferGeometry();
   bankGeometry.setAttribute('position',new THREE.Float32BufferAttribute(bankPositions,3));
   bankGeometry.setAttribute('uv',new THREE.Float32BufferAttribute(bankUV,2));
+  bankGeometry.setAttribute('snowHeight',new THREE.Float32BufferAttribute(bankSnow,1));
   bankGeometry.setIndex(bankIndices);bankGeometry.computeVertexNormals();
-  scene.add(new THREE.Mesh(bankGeometry,stoneMaterial));
+  const bankNormals=bankGeometry.attributes.normal,lipNormal=new THREE.Vector3();
+  for(let i=0;i<=bankRows;i++){
+    const index=i*bankProfile.length,x=bankPositions[index*3],z=bankPositions[index*3+2],epsilon=.08;
+    lipNormal.set(-(heightAt(x+epsilon,z)-heightAt(x-epsilon,z))/(2*epsilon),1,-(heightAt(x,z+epsilon)-heightAt(x,z-epsilon))/(2*epsilon)).normalize();
+    bankNormals.setXYZ(index,lipNormal.x,lipNormal.y,lipNormal.z);
+  }
+  const bankMesh=new THREE.Mesh(bankGeometry,palette.withSnow(stoneMaterial,.90));bankMesh.name='融雪圓邊江岸';scene.add(bankMesh);
 
   const riverMaterial = createRiverMaterial();
   const water = new THREE.Mesh(new THREE.PlaneGeometry(220, 620), riverMaterial);
@@ -195,11 +194,12 @@ export function createWorld() {
     pathWidths.push({baseWidth,scale:1.42,min:minimumWidth,max:maximumWidth,length});
     const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(surfacePos,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(surfaceUV,2));geo.setIndex(surfaceIndices);geo.computeVertexNormals();
     const mat=new THREE.ShaderMaterial({
-      uniforms:{uPathPaint:{value:pathPaintPlaceholder}},
+      uniforms:{uPathPaint:{value:pathPaintPlaceholder},uPathLength:{value:length}},
       transparent:true,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,
       vertexShader:`varying vec2 vUv;varying vec3 vWorld;void main(){vUv=uv;vec4 world=modelMatrix*vec4(position,1.);vWorld=world.xyz;gl_Position=projectionMatrix*viewMatrix*world;}`,
       fragmentShader:`
         uniform sampler2D uPathPaint;
+        uniform float uPathLength;
         varying vec2 vUv;varying vec3 vWorld;
         float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
         float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
@@ -223,7 +223,8 @@ export function createWorld() {
           float painted=clamp(dot(mix(brushA,brushB,.23),vec3(.299,.587,.114))*.91+.035,.13,.77);
           mud=mix(mud,vec3(painted),.64);
           float dry=smoothstep(.12,.72,noise(vec2(vUv.x*41.,vUv.y*3.7)));
-          float alpha=edge*(.48+wash*.22)*(1.-snow*.67)*(.78+dry*.22);
+          float endWash=smoothstep(0.,.95,vUv.y)*smoothstep(0.,1.15,uPathLength-vUv.y);
+          float alpha=edge*endWash*(.48+wash*.22)*(1.-snow*.67)*(.78+dry*.22);
           gl_FragColor=vec4(mud,alpha);
           #include <colorspace_fragment>
         }
@@ -465,7 +466,7 @@ export function createWorld() {
     const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));geometry.setIndex(indices);geometry.computeVertexNormals();
     const material=new THREE.ShaderMaterial({transparent:true,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,
       vertexShader:`varying vec2 vUv;varying vec3 vWorld;varying float vDepth;void main(){vUv=uv;vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vec4 v=viewMatrix*w;vDepth=length(v.xyz);gl_Position=projectionMatrix*v;}`,
-      fragmentShader:`varying vec2 vUv;varying vec3 vWorld;varying float vDepth;float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}void main(){float edge=smoothstep(0.,.18,vUv.x)*smoothstep(0.,.25,1.-vUv.x);float ink=noise(vWorld.xz*.31);float grains=smoothstep(.42,.78,noise(vWorld.xz*5.8));float gap=smoothstep(.62,.83,noise(vWorld.xz*1.4));float alpha=edge*(.19+ink*.22+grains*.10)*(1.-gap*.78)*exp(-vDepth*vDepth*.000007);gl_FragColor=vec4(.34,.345,.34,alpha);
+      fragmentShader:`varying vec2 vUv;varying vec3 vWorld;varying float vDepth;float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}void main(){float edge=smoothstep(0.,.18,vUv.x)*smoothstep(0.,.25,1.-vUv.x);edge*=smoothstep(0.,.025,vUv.y)*smoothstep(0.,.025,1.-vUv.y);float ink=noise(vWorld.xz*.31);float grains=smoothstep(.42,.78,noise(vWorld.xz*5.8));float gap=smoothstep(.62,.83,noise(vWorld.xz*1.4));float alpha=edge*(.19+ink*.22+grains*.10)*(1.-gap*.78)*exp(-vDepth*vDepth*.000007);gl_FragColor=vec4(.34,.345,.34,alpha);
         #include <colorspace_fragment>
       }`,});
     const band=new THREE.Mesh(geometry,material);band.name=far?'對岸灰墨砂礫帶':'近岸灰墨砂礫帶';scene.add(band);
@@ -626,8 +627,11 @@ export function createWorld() {
   }
   winterPlantBatches.clear();
   const boat=buildFishingBoat(palette);
-  boat.position.set(17,.10,-30);boat.rotation.y=-.24;boat.name='孤舟';scene.add(boat);
+  // The hull keel is local y=-.05, and the low gunwale is about y=.43.
+  // Even at the top of a wave the keel stays immersed; the rim stays dry.
+  boat.position.set(17,-.095,-30);boat.rotation.y=-.24;boat.name='孤舟';scene.add(boat);
   boat.userData.initialY=boat.position.y;
+  boat.userData.buoyancy=Object.freeze({waterLevel:-.02,amplitude:.105,angularSpeed:.68,rollAmplitude:.018,pitchAmplitude:.011});
   for(let k=0;k<4;k++){
     const ring=[];for(let i=0;i<=80;i++){const a=i/80*TAU;ring.push(new THREE.Vector3(17+Math.cos(a)*(3.1+k*.58),.012+k*.001,-30+Math.sin(a)*(1.1+k*.27)));}
     const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints(ring),new THREE.LineBasicMaterial({color:'#b7c3c8',transparent:true,opacity:.25-k*.035,depthWrite:false}));scene.add(l);waterAnimations.push(l);
@@ -664,9 +668,10 @@ export function createWorld() {
   }
   function update(dt,time,player){
     riverMaterial.uniforms.uTime.value=time;
-    boat.position.y=boat.userData.initialY+Math.sin(time*.52)*.085;
-    boat.rotation.z=Math.sin(time*.40)*.014;
-    boat.rotation.x=Math.cos(time*.43)*.009;
+    const buoyancy=boat.userData.buoyancy;
+    boat.position.y=boat.userData.initialY+Math.sin(time*buoyancy.angularSpeed)*buoyancy.amplitude;
+    boat.rotation.z=Math.sin(time*.52)*buoyancy.rollAmplitude;
+    boat.rotation.x=Math.cos(time*.57)*buoyancy.pitchAmplitude;
     pines.forEach(tree=>{
       const elapsed=performance.now()/1000-(tree.userData.shake||-100);
       const shake=Math.max(0,1-elapsed/1.2);

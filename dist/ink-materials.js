@@ -39,6 +39,7 @@ const fragmentShader = `
   uniform float uFog;
   uniform float uDistant;
   uniform float uStrength;
+  uniform float uTerrain;
   uniform vec2 uRepeat;
   varying vec3 vWorld;
   varying vec3 vNormalWorld;
@@ -89,6 +90,15 @@ const fragmentShader = `
       color=mix(color,vec3(.91,.918,.903),smoothstep(.52,.89,wash)*.12);
       float crease=smoothstep(.61,.85,noise(vec3(vWorld.x*1.9,vWorld.y*.09,vWorld.z*1.9)));
       color=mix(color,uShadow,crease*.065);
+      if(uTerrain>.5){
+        // Exposed earth dissolves into the same snow surface.  An interpolated
+        // slope and broad wash avoid assigning whole triangles a hard colour.
+        float slope=1.-smoothstep(.73,.92,n.y);
+        float fold=noise(vWorld*vec3(.17,.045,.17))*.72+noise(vWorld*vec3(.43,.08,.39))*.28;
+        float exposed=slope*smoothstep(.42,.74,fold)*.88;
+        float inland=1.-smoothstep(-25.,-16.,vWorld.x);
+        color=mix(snowPigment(vWorld,n),color,exposed*inland);
+      }
     } else if(uKind<1.5){
       // Layered dilute pigment gives snow a wind-brushed surface and soft shade.
       color=snowPigment(vWorld,n);
@@ -128,10 +138,10 @@ const fragmentShader = `
     vec3 eye=normalize(cameraPosition-vWorld);
     float edge=1.-smoothstep(.025,.16,abs(dot(n,eye)));
     float broken=smoothstep(.36,.70,noise(vWorld*9.7));
-    float edgeStrength=uKind> .5 && uKind<1.5 ? .035 : .13;
+    float edgeStrength=(uTerrain>.5 || (uKind>.5 && uKind<1.5)) ? .035 : .13;
     color=mix(color,uShadow,edge*broken*edgeStrength);
     float distance=length(vView);
-    if(uKind<.5){
+    if(uKind<.5 && uTerrain<.5){
       // Distant rock keeps its ink skin but loses fine contrast in the grey air.
       float soft=smoothstep(36.,125.,distance)*.42;
       color=mix(color,vec3(.82,.823,.82),soft);
@@ -178,7 +188,7 @@ export function createBrushMaterials(){
         uColor:{value:new THREE.Color(color)},uShadow:{value:new THREE.Color('#737674')},
         uPigment:{value:textures[textureFor[type]]||white},uKind:{value:kinds[type]},
         uShade:{value:shade},uSnow:{value:snow},uOpacity:{value:opacity},uFog:{value:fog},
-        uDistant:{value:distant},uStrength:{value:strength},uRepeat:{value:repeat},
+        uDistant:{value:distant},uStrength:{value:strength},uRepeat:{value:repeat},uTerrain:{value:0},
       },
       side:THREE.DoubleSide,transparent:opacity<1,depthWrite:opacity>=1,toneMapped:false,
     });
@@ -197,6 +207,7 @@ export function createBrushMaterials(){
       return painted;
     },
     snowMaterial:inkMaterial('#fafaf7',.2,0,1,.002,0,'snow'),
+    terrainMaterial:inkMaterial('#e4e4e0',.55,0,1,.002,0,'rock'),
     stoneMaterial:inkMaterial('#e4e4e0',.55,0,1,.0023,0,'rock'),
     cliffMaterial:inkMaterial('#e6e6e2',.6,0,1,.0025,0,'rock'),
     branchMaterial:inkMaterial('#8d908a',.38,0,1,.0024,0,'bark'),
@@ -211,5 +222,7 @@ export function createBrushMaterials(){
   };
   palette.cliffMaterial.uniforms.uRepeat.value.set(.105,.10);
   palette.stoneMaterial.uniforms.uRepeat.value.set(.43,.24);
+  palette.terrainMaterial.uniforms.uRepeat.value.set(.43,.24);
+  palette.terrainMaterial.uniforms.uTerrain.value=1;
   return palette;
 }
