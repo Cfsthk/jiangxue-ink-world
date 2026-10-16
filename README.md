@@ -1,5 +1,9 @@
 # 江雪・雪境漫遊 1.4.4
 
+[在 GitHub Pages 開啟遊戲](https://cfsthk.github.io/jiangxue-ink-world/)
+
+GitHub Actions 會在推送 main 分支時，把現有 dist 資料夾部署至 GitHub Pages，無需安裝套件或建置。也可在 Actions 手動執行「Deploy Jiangxue to GitHub Pages」。
+
 為香港小五至小六設計的 Three.js 半開放水墨探索遊戲。學生從面向出口的馬車後開始，沿山路墨點依次尋回五件行李，認識柳宗元離京、貶謫與思念故人的背景。建議課堂預留15–20分鐘。
 
 ## 開啟與驗證
