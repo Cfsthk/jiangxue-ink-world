@@ -1,13 +1,13 @@
 import * as THREE from './vendor/three.module.js';
-import { createBrushMaterials } from './ink-materials.js?v=1.1.0';
-import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=1.1.0';
-import { createRiverMaterial } from './river.js?v=1.1.0';
-import { createMountainSurround } from './mountains.js?v=1.1.0';
-import { createAmbience } from './ambience.js?v=1.1.0';
-import { createJourney, WAGON_SITE, JOURNEY_SPAWN } from './journey.js?v=1.1.0';
-import { createInkTrail } from './ink-trail.js?v=1.1.0';
-import { nearBank as bank, farBank as farBankAt, passWall } from './landscape-shape.js?v=1.1.0';
-import { LUGGAGE } from './journey-state.js?v=1.1.0';
+import { createBrushMaterials } from './ink-materials.js?v=1.2.0';
+import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=1.2.0';
+import { createRiverMaterial } from './river.js?v=1.2.0';
+import { createMountainSurround } from './mountains.js?v=1.2.0';
+import { createAmbience } from './ambience.js?v=1.2.0';
+import { createJourney, WAGON_SITE, JOURNEY_SPAWN } from './journey.js?v=1.2.0';
+import { createInkTrail } from './ink-trail.js?v=1.2.0';
+import { nearBank as bank, farBank as farBankAt, passWall, conformRockSurface } from './landscape-shape.js?v=1.2.0';
+import { LUGGAGE } from './journey-state.js?v=1.2.0';
 
 // Walkable terrain, weathered stone, pines and the boat are real 3D.
 // Chinese brush pigments wrap their surfaces; distant paintings complete the view.
@@ -49,6 +49,8 @@ export function createWorld() {
   const pathFootprints = [];
   let maxPathSampleSpacing=0;
   const rockSnowMaterials = new Map();
+  const rockPlacements = [];
+  const rockGrounding = [];
   const palette = createBrushMaterials();
   const { inkMaterial, snowMaterial, terrainMaterial, stoneMaterial, cliffMaterial, branchMaterial, foliageMaterial, distantMaterials } = palette;
   let randomSeed = 198406;
@@ -252,6 +254,7 @@ export function createWorld() {
       step.position.set(x,heightAt(x,z)-.09-stepRand()*.045,z);
       step.rotation.y=Math.atan2(n.x,n.z)+(stepRand()-.5)*.78;
       step.name='覆雪石階';scene.add(step);
+      rockPlacements.push({rock:step,height,radius,sampler:heightAt});
     }
   }
   makePath([[-32,47],[-43,35],[-38,24],[-29,16],[-33,3],[-46,-12]],3.0);
@@ -267,7 +270,7 @@ export function createWorld() {
 
   // The outward road shares the same irregular brush edges and ground texture.
   const beforeExitRoad=randomSeed;
-  makePath([[-22,32],[-24,43],[-27.8,54],[-27.8,67],[-30,84]],3.5);
+  makePath([[-22,32],[-24,43],[-28.6,54],[-28.6,67],[-30,84]],3.5);
   randomSeed=beforeExitRoad;
 
   // Dilute, irregular contact washes sit on the actual snow surface.
@@ -320,19 +323,22 @@ export function createWorld() {
       const y=height*(t+(crag?-.10:0)+crown*.14*smooth(.15,.88,t)+fold*.055);
       position.setXYZ(i,x,y,z);minY=Math.min(minY,y);maxY=Math.max(maxY,y);
     }
+    smoothRockNormals(geometry);
+    const snowHeight=new Float32Array(position.count),range=Math.max(.001,maxY-minY);
+    for(let i=0;i<position.count;i++)snowHeight[i]=(position.getY(i)-minY)/range;
+    geometry.setAttribute('snowHeight',new THREE.BufferAttribute(snowHeight,1));
+    geometry.userData.height=height;geometry.userData.seed=seed;geometry.computeBoundingSphere();return geometry;
+  }
+  function smoothRockNormals(geometry){
     geometry.computeVertexNormals();
     // Sphere UV seams and the poles share an averaged physical normal as well.
-    const normals=geometry.attributes.normal,sums=new Map();
+    const position=geometry.attributes.position,normals=geometry.attributes.normal,sums=new Map();
     for(let i=0;i<position.count;i++){
       const key=`${position.getX(i).toFixed(5)},${position.getY(i).toFixed(5)},${position.getZ(i).toFixed(5)}`;
       if(!sums.has(key))sums.set(key,{n:new THREE.Vector3(),ids:[]});
       const entry=sums.get(key);entry.n.add(new THREE.Vector3().fromBufferAttribute(normals,i));entry.ids.push(i);
     }
     for(const entry of sums.values()){entry.n.normalize();for(const i of entry.ids)normals.setXYZ(i,entry.n.x,entry.n.y,entry.n.z);}
-    const snowHeight=new Float32Array(position.count),range=Math.max(.001,maxY-minY);
-    for(let i=0;i<position.count;i++)snowHeight[i]=(position.getY(i)-minY)/range;
-    geometry.setAttribute('snowHeight',new THREE.BufferAttribute(snowHeight,1));
-    geometry.userData.height=height;geometry.userData.seed=seed;geometry.computeBoundingSphere();return geometry;
   }
   function makeRockGroup(radius,height,seed,spire,material,specifiedSnow=null){
     const group=new THREE.Group(),geometry=rockGeometry(radius,height,seed,spire);
@@ -346,6 +352,7 @@ export function createWorld() {
     const rock=makeRockGroup(r,h,rand()*20,spire,material);
     rock.position.set(x,ground?heightAt(x,z)-h*((spire||h/r>1.1)?.35:.26):(spire?-3.6:-.48),z);
     rock.rotation.y=rand()*TAU;scene.add(rock);
+    if(ground)rockPlacements.push({rock,height:h,radius:r,sampler:heightAt});
     if(addCollision)collisions.push({x,z,r:r*.84});
     if(ground&&h>=2.2&&r>=1.5)windbreaks.push({x,z,radius:r,height:h,top:rock.position.y+h});
     if(ground&&r>.7)addContactWash(x,z,r,randomSeed*.001,.22,1.12);
@@ -436,7 +443,7 @@ export function createWorld() {
 
   // Broad continuous snow-rock skins frame the road at its tip. The cart blocks the gap.
   for(const side of [-1,1]){
-    const cliff=addRock(-27+side*10.55,66,8.65,21.0,cliffMaterial,true,false,true);
+    const cliff=addRock(-27.8+side*10.55,66,8.65,21.0,cliffMaterial,true,false,true);
     cliff.scale.z=1.35;cliff.rotation.y=side*.10;
   }
   const journey=createJourney({scene,palette,heightAt,collisions});
@@ -509,11 +516,36 @@ export function createWorld() {
       rock.scale.set(stretch,1,.72+beachRand()*.25);rock.rotation.y=angle;
       rock.position.set(x,(far?farHeightAt(x,z):heightAt(x,z))-h*.23,z);
       rock.name=far?'對岸灰雪岩簇':'近岸灰雪岩簇';rock.userData.beachSide=far?'far':'near';scene.add(rock);
+      rockPlacements.push({rock,height:h,radius:r,sampler:far?farHeightAt:heightAt});
       if(!far){collisions.push({x,z,r:r*1.18});addContactWash(x,z,r,seed,.18,1.15);}
     }
   }
   for(const [z,count] of [[-59,3],[-43,4],[-31,3],[-10,3],[10,3],[28,4],[47,3],[62,3]])addBeachCluster(z,false,count);
   for(const [z,count] of [[-131,3],[-89,4],[-53,3],[-17,4],[24,3],[63,4],[111,3],[151,3]])addBeachCluster(z,true,count);
+
+  // Centre-height placement left horizontal snow-covered plates hanging above
+  // the downhill side. Warp the solid stone and its painted snow together.
+  for(const {rock,height,radius,sampler} of rockPlacements){
+    const geometry=rock.children[0].geometry,position=geometry.attributes.position;
+    const centreGround=sampler(rock.position.x,rock.position.z),buried=[];
+    for(let i=0;i<position.count;i++)if(rock.position.y+position.getY(i)*rock.scale.y<centreGround-.02)buried.push(i);
+    const grounding=conformRockSurface(position.array,{
+      x:rock.position.x,z:rock.position.z,yaw:rock.rotation.y,
+      scaleX:rock.scale.x,scaleY:rock.scale.y,scaleZ:rock.scale.z,
+      height,wholeSurface:height/radius<=1.1,
+    },sampler);
+    position.needsUpdate=true;smoothRockNormals(geometry);geometry.computeBoundingSphere();
+    const cos=Math.cos(rock.rotation.y),sin=Math.sin(rock.rotation.y);
+    let maxBuriedClearance=-Infinity;
+    for(const i of buried){
+      const lx=position.getX(i)*rock.scale.x,lz=position.getZ(i)*rock.scale.z;
+      const x=rock.position.x+cos*lx+sin*lz,z=rock.position.z-sin*lx+cos*lz;
+      maxBuriedClearance=Math.max(maxBuriedClearance,rock.position.y+position.getY(i)*rock.scale.y-sampler(x,z));
+    }
+    grounding.buriedVertices=buried.length;grounding.maxBuriedClearance=buried.length?maxBuriedClearance:null;
+    rock.userData.grounding=grounding;
+    rockGrounding.push(Object.freeze({name:rock.name,x:rock.position.x,z:rock.position.z,...grounding}));
+  }
 
   function findPineSite(x,z,size){
     const safe=(px,pz)=>{
@@ -719,7 +751,6 @@ export function createWorld() {
   const ambience=createAmbience({scene,boat,heightAt,bank});
 
   const shorePoint=new THREE.Vector3(-4,heightAt(-4,-24),-24);
-  interactables.push({id:'shore-stone',type:'stone',position:new THREE.Vector3(-6,heightAt(-6,-21)+.35,-21),radius:3.4,label:'拾起小石',object:null});
   interactables.push({id:'fishing-boat',type:'boat',position:shorePoint.clone().add(new THREE.Vector3(0,1,0)),radius:8,label:'凝望孤舟',object:boat});
 
   function canWalk(x,z){
@@ -780,5 +811,5 @@ export function createWorld() {
   const journeySpawn=JOURNEY_SPAWN;
   const trail=createInkTrail({scene,journey,canWalk,heightAt,roads:pathSamples,spawn:journeySpawn});
   const landmarks={summit:{x:-46,z:-12},shore:{x:-4,z:-24},forest:{x:-48,z:37}};
-  return {scene,ready,journey,trail,spawn:journeySpawn,heightAt,canWalk,shelterAt,shelterSpots:Object.freeze(shelterSpots),ambienceDiagnostics:ambience.diagnostics,zoneAt,interactables,boat,update,landmarks,pineClearances,pathSampling:{count:pathSamples.length,maxSpacing:maxPathSampleSpacing,mode:'rendered-road-footprint'},pathWidths:Object.freeze(pathWidths),assetState,vegetationStats:Object.freeze({counts:{...vegetationCounts},clumps:winterPlants.length,batches:vegetationBatchCount,minRoadClearance:Math.min(...winterPlants.map(p=>p.clearance))}),vegetationPlacements:Object.freeze(winterPlants),farForestStats:Object.freeze(farForestStats),treeVariantCounts:Object.freeze(pineClearances.reduce((counts,p)=>(counts[p.variant]=(counts[p.variant]||0)+1,counts),{}))};
+  return {scene,ready,journey,trail,spawn:journeySpawn,heightAt,canWalk,shelterAt,shelterSpots:Object.freeze(shelterSpots),ambienceDiagnostics:ambience.diagnostics,zoneAt,interactables,boat,update,landmarks,pineClearances,rockGrounding:Object.freeze(rockGrounding),pathSampling:{count:pathSamples.length,maxSpacing:maxPathSampleSpacing,mode:'rendered-road-footprint'},pathWidths:Object.freeze(pathWidths),assetState,vegetationStats:Object.freeze({counts:{...vegetationCounts},clumps:winterPlants.length,batches:vegetationBatchCount,minRoadClearance:Math.min(...winterPlants.map(p=>p.clearance))}),vegetationPlacements:Object.freeze(winterPlants),farForestStats:Object.freeze(farForestStats),treeVariantCounts:Object.freeze(pineClearances.reduce((counts,p)=>(counts[p.variant]=(counts[p.variant]||0)+1,counts),{}))};
 }

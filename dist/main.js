@@ -1,8 +1,8 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=1.1.0';
-import { Soundscape } from './audio.js?v=1.1.0';
-import { InkWash } from './wash.js?v=1.1.0';
-import { createGroundSnow } from './ground-snow.js?v=1.1.0';
+import { createWorld } from './world.js?v=1.2.0';
+import { Soundscape } from './audio.js?v=1.2.0';
+import { InkWash } from './wash.js?v=1.2.0';
+import { createGroundSnow } from './ground-snow.js?v=1.2.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
@@ -14,17 +14,17 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const keys = new Set();
 const sound = new Soundscape();
 sound.setMuted(true);
-const state = { ready: false, started: false, entering: false, paused: false, ended: false, muted: true, time: 0, zone: '', target: null, fps: 60 };
+const state = { ready: false, started: false, entering: false, paused: false, muted: true, time: 0, zone: '', target: null, fps: 60 };
 const player = { x: -32, z: 44, y: 0, yaw: -.85, pitch: -.08, targetYaw: -.85, targetPitch: -.08, vx: 0, vz: 0 };
 const joy = { x: 0, y: 0, id: null };
 let renderer, camera, world, wash;
+let storyFromLuggage=false;
 let lastTime = performance.now(), footDistance = 0, lastPlayer = null, feedbackTimer, interactionTime = -100;
 let shelter = 0;
 let drag = null, focusUntil = 0, frameSamples = 0, fpsTime = 0;
 let nextFoot = 1, snowCount = 0, powderDiagnostics = null;
 const footprints = [], effects = [];
 const effectRoot = new THREE.Group();
-const rippleGeometry = new THREE.RingGeometry(.97, 1, 64);
 
 // ponytail: native DOM controls and one render loop suffice; no UI framework or physics engine.
 function notify(text, duration = 3500) {
@@ -43,7 +43,7 @@ function clearInput() {
   drag = null;
 }
 
-function isPlaying() { return state.started && !state.entering && !state.paused && !state.ended; }
+function isPlaying() { return state.started && !state.entering && !state.paused; }
 
 function syncSound() {
   sound.setMuted(state.muted || state.paused || !state.started);
@@ -69,12 +69,10 @@ function closeMenu() {
 }
 
 function restart() {
-  state.ended = false;
+  storyFromLuggage=false;
   world.journey.reset();
   if(storyDialog.open)storyDialog.close();
   if(luggageDialog.open)luggageDialog.close();
-  $('ending').hidden=true;
-  $('hud').classList.remove('journey-ended');
   Object.assign(player, world.spawn);
   world.trail.reset(world.spawn);
   player.targetYaw = player.yaw;
@@ -121,38 +119,48 @@ async function start() {
 function storyArt(id){return `<img src="./assets/props-v2/${id}.png" alt="" width="600" height="380">`;}
 function syncJourneyHUD(){
   if(!world)return;
-  const j=world.journey.getState();$('luggage-count').textContent=`${j.returned}/5`;
-  $('open-luggage').setAttribute('aria-label',`查看行李與已讀往事，已歸還 ${j.returned} 件，共 5 件`);
+  const j=world.journey.getState();$('luggage-count').textContent=`${j.collected}/5`;
+  $('open-luggage').setAttribute('aria-label',`查看行李與已讀往事，已尋回 ${j.collected} 件，共 5 件`);
 }
-function showStory(item){
+function showStory(item,fromLuggage=false){
+  storyFromLuggage=fromLuggage;
   clearInput();state.paused=true;state.target=null;
   $('story-year').textContent=item.title;$('story-title').textContent=item.name;$('story-title').dataset.long=String(item.name.length>5);$('story-text').textContent=item.text;$('story-detail').textContent=item.detail;$('story-art').innerHTML=storyArt(item.id);
   if(luggageDialog.open)luggageDialog.close();
   if(!storyDialog.open)storyDialog.showModal();syncSound();$('story-continue').focus();
 }
 function closeStory(){
-  if(storyDialog.open)storyDialog.close();state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});detectInteraction();
-  notify('帶回馬車，一次一件。');
+  if(storyDialog.open)storyDialog.close();
+  if(storyFromLuggage){storyFromLuggage=false;openLuggage();return;}
+  state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});detectInteraction();
 }
 function openLuggage(){
-  if(!world||!state.started||state.entering||state.ended)return;
+  if(!world||!state.started||state.entering)return;
   clearInput();state.paused=true;syncSound();
   const j=world.journey.getState();
-  $('luggage-list').innerHTML=world.journey.items.map((item,index)=>{
-    const entry=j.items[index],returned=entry.status==='returned',read=j.storiesRead.includes(item.id);
-    const status=returned?'已歸還・重讀':entry.status==='carried'?'手中行李':!entry.unlocked?(item.id==='farewell'?'最後尋回':'稍後尋回'):entry.status==='ready'?'可以拾起':'墨點引路';
-    const tag=read?'button':'div',attr=read?`type="button" data-story="${item.id}"`:'class="luggage-row"';
-    return `<li><${tag} ${attr}><img class="journal-art" src="./assets/props-v2/${item.id}.png" alt=""><span class="item-number">${index+1}</span><span><strong>${item.name}</strong><small>${item.place}</small></span><span class="item-state">${status}</span></${tag}></li>`;
+  $('luggage-title').textContent=j.complete?'查看馬車':'行李';
+  $('luggage-title').classList.toggle('sr-only',!j.complete);
+  $('continue-journey').hidden=!j.complete;
+  $('luggage-list').innerHTML=world.journey.items.map(item=>{
+    const read=j.storiesRead.includes(item.id),tag=read?'button':'div';
+    const attr=read?`type="button" data-story="${item.id}" aria-label="重讀${item.name}"`:'class="luggage-row"';
+    return `<li><${tag} ${attr}><img class="journal-art" src="./assets/props-v2/${item.id}.png" alt=""><strong>${item.name}</strong></${tag}></li>`;
   }).join('');
   if(!luggageDialog.open)luggageDialog.showModal();
 }
 function closeLuggage(){if(luggageDialog.open)luggageDialog.close();state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});detectInteraction();}
 function finishJourney(){
-  clearInput();state.ended=true;state.paused=false;state.target=null;clearTimeout(feedbackTimer);$('feedback').classList.remove('visible');
-  $('hud').classList.add('journey-ended');$('ending').hidden=false;
-  const at=world.journey.wagon.rig.position,dx=at.x-player.x,dz=at.z+1-player.z;
-  const direction=Math.atan2(-dx,-dz);player.targetYaw=player.yaw+Math.atan2(Math.sin(direction-player.yaw),Math.cos(direction-player.yaw));player.targetPitch=-.025;
-  $('journey-replay').focus();syncSound();
+  clearInput();state.target=null;clearTimeout(feedbackTimer);$('feedback').classList.remove('visible');
+  world.trail.update(0,state.time,player,false);
+  openLuggage();
+}
+function returnToMain(){
+  restart();
+  state.started=false;state.entering=false;state.paused=false;storyFromLuggage=false;
+  $('hud').hidden=true;intro.hidden=false;intro.classList.remove('departing');
+  $('mist-transition').classList.remove('flow');
+  $('start').disabled=!state.ready;$('start-label').textContent='步入江雪';
+  clearInput();syncSound();$('start').focus({preventScroll:true});
 }
 
 function makeFootTexture() {
@@ -199,28 +207,6 @@ function addFootprint() {
   sound.step();
 }
 
-function addRipple(x, z) {
-  const group = new THREE.Group(); group.position.set(x, .075, z);
-  for (let i = 0; i < 3; i++) {
-    const mesh = new THREE.Mesh(rippleGeometry, new THREE.MeshBasicMaterial({ color: '#8e9e9e', transparent: true, opacity: .16, depthWrite: false, side: THREE.DoubleSide }));
-    mesh.rotation.x = -Math.PI / 2; mesh.userData.delay = i * .3; group.add(mesh);
-  }
-  effectRoot.add(group);
-  effects.push({ type: 'ripple', object: group, age: 0, life: 4.2 });
-}
-
-function throwStone() {
-  const start = new THREE.Vector3(player.x + .22, player.y - .35, player.z);
-  const end = new THREE.Vector3(Math.max(8, player.x + 11), .05, player.z - 5);
-  // Turn gently toward the water so a throw remains visible even when looking inland.
-  const direction = Math.atan2(-(end.x-player.x), -(end.z-player.z));
-  player.targetYaw = player.yaw + Math.atan2(Math.sin(direction-player.yaw), Math.cos(direction-player.yaw));
-  player.targetPitch = Math.atan2(end.y-player.y, Math.hypot(end.x-player.x,end.z-player.z));
-  const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(.065, 0), new THREE.MeshBasicMaterial({ color: '#8b9290' }));
-  mesh.position.copy(start); effectRoot.add(mesh);
-  effects.push({ type: 'stone', object: mesh, age: 0, life: 1.1, start, end });
-}
-
 function shakePine(target) {
   sound.rustle();
   if (target.object) target.object.userData.shake = performance.now() / 1000;
@@ -245,7 +231,7 @@ function interact() {
   interactionTime=state.time;
   if(journeyTarget){
     const result=world.journey.act(target);if(!result)return;
-    if(result.picked)player.targetPitch=-.025;
+    if(result.picked){player.targetPitch=-.025;world.trail.update(0,state.time,player,true);}
     if(result.message)notify(result.message,4000);
     if(result.working)sound.rustle();
     if(result.journal)openLuggage();
@@ -254,7 +240,6 @@ function interact() {
     syncJourneyHUD();if(isPlaying())detectInteraction();return;
   }
   if (target.type === 'pine') { shakePine(target); notify('枝頭落雪，又靜下來了。'); }
-  else if (target.type === 'stone') { throwStone(); }
   else if (target.type === 'boat') {
     const p = target.object ? target.object.getWorldPosition(new THREE.Vector3()) : target.position;
     const direction = Math.atan2(-(p.x - player.x), -(p.z - player.z));
@@ -282,7 +267,7 @@ function detectInteraction() {
 const promptPoint=new THREE.Vector3();
 function updateInteractionPrompt(){
   const button=$('interact'),target=state.target;
-  if(!isPlaying()||!target){button.hidden=true;return;}
+  if(!isPlaying()||!target||target.busy||!target.label||world.journey.getState().working){button.hidden=true;return;}
   promptPoint.copy(target.promptPosition||target.position);
   if(!target.promptPosition)promptPoint.y+=.45;
   promptPoint.project(camera);
@@ -299,7 +284,7 @@ function updateInteractionPrompt(){
 function disposeEffect(object) {
   effectRoot.remove(object);
   object.traverse(child => {
-    if (child.geometry && child.geometry !== rippleGeometry) child.geometry.dispose();
+    if (child.geometry) child.geometry.dispose();
     if (child.material) child.material.dispose();
   });
 }
@@ -312,17 +297,7 @@ function updateEffects(dt) {
   }
   for (let i = effects.length - 1; i >= 0; i--) {
     const e = effects[i]; e.age += dt;
-    if (e.type === 'ripple') {
-      e.object.children.forEach((ring, n) => {
-        const age = Math.max(0, e.age - n * .3); ring.visible = e.age > n * .3;
-        ring.scale.setScalar(.2 + age * .65); ring.material.opacity = .18 * Math.max(0, 1 - age / 3.2);
-      });
-    } else if (e.type === 'stone') {
-      const t = Math.min(1, e.age / e.life);
-      e.object.position.lerpVectors(e.start, e.end, t); e.object.position.y += Math.sin(t * Math.PI) * 2;
-      e.object.rotation.x += dt * 5;
-      if (t >= 1) { addRipple(e.end.x, e.end.z); sound.splash(); }
-    } else if (e.type === 'snow') {
+    if (e.type === 'snow') {
       const p = e.object.geometry.attributes.position;
       for (let j = 0; j < p.count; j++) { p.array[j * 3] += dt * .27; p.array[j * 3 + 1] -= dt * e.speeds[j]; }
       p.needsUpdate = true; e.object.material.opacity = .9 * Math.max(0, 1 - e.age / e.life);
@@ -459,7 +434,6 @@ async function init() {
           player.targetYaw=player.yaw+Math.atan2(Math.sin(direction-player.yaw),Math.cos(direction-player.yaw));
           player.targetPitch=THREE.MathUtils.clamp(Math.atan2(workingFocus.y-player.y,Math.hypot(dx,dz)),-.95,.40);
         }
-        if(state.ended){player.yaw=THREE.MathUtils.damp(player.yaw,player.targetYaw,2.2,dt);player.pitch=THREE.MathUtils.damp(player.pitch,player.targetPitch,2.2,dt);}
         world.update(dt, state.time, player, .5+.3*Math.sin(state.time*.37)+.2*Math.sin(state.time*.83+1.4));
         updateEffects(dt); weather(dt);
       }
@@ -479,7 +453,7 @@ async function init() {
       console.error('水墨素材載入失敗', error);
       $('load-status').textContent = '水墨素材未能載入，請重新整理再試。';
     });
-    window.__JIANGXUE__ = Object.freeze({ inspectGuideRoutes:()=>world.trail.inspectRoutes(), getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type,targetId:state.target?.id,targetLabel:state.target?.label, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.(),journey:world.journey.getState(),trail:world.trail.getState() }) });
+    window.__JIANGXUE__ = Object.freeze({ inspectGuideRoutes:()=>world.trail.inspectRoutes(), getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type,targetId:state.target?.id,targetLabel:state.target?.label, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats,rockGrounding:world.rockGrounding, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.(),journey:world.journey.getState(),trail:world.trail.getState() }) });
   } catch (error) {
     console.error('江雪世界載入失敗', error);
     $('start-label').textContent = '重新載入'; $('start').disabled = false;
@@ -492,10 +466,10 @@ $('interact').addEventListener('click', interact);
 $('open-luggage').addEventListener('click',openLuggage);
 $('close-luggage').addEventListener('click',closeLuggage);
 $('story-continue').addEventListener('click',closeStory);
-$('journey-replay').addEventListener('click',restart);
+$('continue-journey').addEventListener('click',returnToMain);
 storyDialog.addEventListener('cancel',event=>{event.preventDefault();closeStory();});
 luggageDialog.addEventListener('cancel',event=>{event.preventDefault();closeLuggage();});
-$('luggage-list').addEventListener('click',event=>{const id=event.target.closest('[data-story]')?.dataset.story;if(id){const item=world.journey.items.find(i=>i.id===id);showStory(item);}});
+$('luggage-list').addEventListener('click',event=>{const id=event.target.closest('[data-story]')?.dataset.story;if(id){const item=world.journey.items.find(i=>i.id===id);showStory(item,true);}});
 $('start').addEventListener('click', start);
 $('intro-help').addEventListener('click', openMenu);
 $('close-menu').addEventListener('click', closeMenu);

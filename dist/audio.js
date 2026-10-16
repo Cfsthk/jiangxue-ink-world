@@ -10,12 +10,6 @@ export class Soundscape {
     this.transientGains = new Map();
     this.environment = { wind: 0.45, river: 0, shelter: 0 };
     this.lastStep = -Infinity;
-    this.pipaBuffers = new Map();
-    this.musicSources = new Set();
-    this.nextPhraseAt = null;
-    this.phrasesPlayed = 0;
-    this.lastPhraseAt = null;
-    this.lastMusicMix = 0;
     this.stepInterval = 0.24;
     this.lastStepDuration = 0;
     this.windScheduledUntil = 0;
@@ -52,14 +46,12 @@ export class Soundscape {
     this.muted = Boolean(value);
     if (this.master) this.ramp(this.master.gain, this.muted ? 0 : 0.48, 0.35);
     if (this.muted) {
-      this.nextPhraseAt = null;
       this.fadeTransients();
       if (this.context && this.windGust) {
         this.ramp(this.windGust.gain, 0.38, 0.4);
         this.windScheduledUntil = 0;
       }
     } else if (changed) {
-      this.nextPhraseAt = null;
       this.queueWindGusts(true);
     }
   }
@@ -76,7 +68,6 @@ export class Soundscape {
     this.wind.gain.gain.setTargetAtTime((0.011 + wind * 0.060) * (1 - shelter * 0.83), now, 0.85);
     this.river.gain.gain.setTargetAtTime(river * river * 0.037 * (1 - shelter * 0.58), now, 1.15);
     this.queueWindGusts();
-    this.queuePipaPhrase();
   }
 
   /** Native gain automation makes real gusts; random rise, hold and lull lengths
@@ -122,96 +113,6 @@ export class Soundscape {
     if (!this.canPlay()) return;
     this.noiseBurst({ duration: 0.52, volume: 0.07, low: 240, high: 2300, attack: 0.055 });
     this.noiseBurst({ duration: 0.3, volume: 0.037, low: 120, high: 1350, delay: 0.32, attack: 0.04 });
-  }
-
-  splash() {
-    if (!this.canPlay()) return;
-    this.noiseBurst({ duration: 0.40, volume: 0.075, low: 600, high: 4700, attack: 0.008 });
-    this.noiseBurst({ duration: 0.65, volume: 0.032, low: 170, high: 1700, delay: 0.07, attack: 0.025 });
-    this.softTone(420, 0.13, 0.027, 0, 185);
-  }
-
-  /** A few unhurried pentatonic plucks, followed by a long stretch of wind.
-   * The frame clock schedules only the current phrase, so returning from a
-   * paused / hidden tab cannot play a backlog of missed music. */
-  queuePipaPhrase() {
-    if (!this.canPlay()) return;
-    const now = this.context.currentTime;
-    if (this.nextPhraseAt === null) {
-      this.nextPhraseAt = now + 12 + Math.random() * 6;
-      return;
-    }
-    if (now < this.nextPhraseAt) return;
-    const motifs = [
-      [[293.66, 0], [392.00, 0.39], [329.63, 0.91]],
-      [[261.63, 0], [293.66, 0.48]],
-      [[392.00, 0], [440.00, 0.32], [329.63, 0.77], [293.66, 1.24]],
-      [[329.63, 0], [261.63, 0.56], [293.66, 1.10]],
-    ];
-    const notes = motifs[Math.floor(Math.random() * motifs.length)];
-    const { wind, shelter } = this.environment;
-    // Keep the instrument below the wind, including its quieter lulls.
-    const mix = 0.0105 * (0.70 + wind * 0.30) * (1 - shelter * 0.12);
-    notes.forEach(([frequency, delay], index) => {
-      this.pluckPipa(frequency, mix * (index === 0 ? 1 : 0.88), delay);
-    });
-    this.phrasesPlayed++;
-    this.lastPhraseAt = now;
-    this.lastMusicMix = mix;
-    this.nextPhraseAt = now + notes.at(-1)[1] + 35 + Math.random() * 30;
-  }
-
-  /** A damped plucked string with a small wooden-body resonance and nail
-   * transient. A cached sample keeps later phrases cheap and avoids the
-   * organ-like sustain of a bank of oscillators. */
-  makePipaBuffer(frequency) {
-    if (this.pipaBuffers.has(frequency)) return this.pipaBuffers.get(frequency);
-    const ctx = this.context, duration = 2.05;
-    const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * duration), ctx.sampleRate);
-    const samples = buffer.getChannelData(0);
-    const period = Math.max(3, Math.round(ctx.sampleRate / frequency - 0.5));
-    const string = new Float32Array(period);
-    let average = 0;
-    for (let i = 0; i < period; i++) {
-      string[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / period);
-      average += string[i] / period;
-    }
-    for (let i = 0; i < period; i++) string[i] -= average;
-    let peak = 0;
-    for (let i = 0; i < samples.length; i++) {
-      const index = i % period, t = i / ctx.sampleRate;
-      const vibration = string[index];
-      string[index] = 0.4982 * (vibration + string[(index + 1) % period]);
-      const phase = Math.PI * 2 * frequency * t;
-      const body = Math.sin(phase) * 0.13 * Math.exp(-3.8 * t)
-        + Math.sin(phase * 2.003) * 0.055 * Math.exp(-7.6 * t);
-      const nail = (Math.random() * 2 - 1) * 0.045 * Math.exp(-t * 280);
-      const attack = Math.min(1, t / 0.0018);
-      const release = Math.min(1, (duration - t) / 0.085);
-      samples[i] = (vibration * Math.exp(-1.35 * t) + body + nail) * attack * release;
-      peak = Math.max(peak, Math.abs(samples[i]));
-    }
-    const normalise = peak > 0 ? 0.72 / peak : 1;
-    for (let i = 0; i < samples.length; i++) samples[i] *= normalise;
-    this.pipaBuffers.set(frequency, buffer);
-    return buffer;
-  }
-
-  pluckPipa(frequency, volume, delay = 0) {
-    const ctx = this.context, start = ctx.currentTime + delay;
-    const source = ctx.createBufferSource();
-    source.buffer = this.makePipaBuffer(frequency);
-    const lowpass = ctx.createBiquadFilter();
-    lowpass.type = 'lowpass';
-    lowpass.frequency.value = 3100;
-    lowpass.Q.value = 0.45;
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(volume, start);
-    gain.gain.linearRampToValueAtTime(0, start + source.buffer.duration);
-    source.connect(lowpass).connect(gain).connect(this.master);
-    this.track(source, [lowpass, gain], gain.gain, 'music');
-    source.start(start);
-    source.stop(start + source.buffer.duration + 0.01);
   }
 
   canPlay() {
@@ -288,31 +189,11 @@ export class Soundscape {
     source.stop(start + duration + 0.04);
   }
 
-  softTone(frequency, duration, volume, delay = 0, endFrequency = frequency) {
-    const ctx = this.context;
-    const start = ctx.currentTime + delay;
-    const source = ctx.createOscillator();
-    const gain = ctx.createGain();
-    source.type = 'sine';
-    source.frequency.setValueAtTime(frequency, start);
-    source.frequency.exponentialRampToValueAtTime(endFrequency, start + duration);
-    gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(volume, start + 0.035);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-    gain.gain.linearRampToValueAtTime(0, start + duration + 0.03);
-    source.connect(gain).connect(this.master);
-    this.track(source, [gain], gain.gain);
-    source.start(start);
-    source.stop(start + duration + 0.04);
-  }
-
-  track(source, nodes, gain, kind = null) {
+  track(source, nodes, gain) {
     this.activeSources.add(source);
-    if (kind === 'music') this.musicSources.add(source);
     if (gain) this.transientGains.set(source, gain);
     source.onended = () => {
       this.activeSources.delete(source);
-      this.musicSources.delete(source);
       this.transientGains.delete(source);
       source.disconnect();
       for (const node of nodes) node.disconnect();
@@ -336,14 +217,9 @@ export class Soundscape {
     }
   }
 
-  /** Restart cleanup: fade plucks and footfalls, keep the environmental
-   * layers intact, and leave a quiet opening before the next music phrase. */
+  /** Restart cleanup: fade footfalls and rustling, keeping the environmental layers intact. */
   resetTransients() {
     this.fadeTransients();
-    this.nextPhraseAt = null;
-    this.phrasesPlayed = 0;
-    this.lastPhraseAt = null;
-    this.lastMusicMix = 0;
     this.lastStep = -Infinity;
     this.lastStepDuration = 0;
   }
@@ -359,19 +235,12 @@ export class Soundscape {
       lastStep: Number.isFinite(this.lastStep) ? this.lastStep : null,
       stepInterval: this.stepInterval, lastStepDuration: this.lastStepDuration,
       activeTransients: this.activeSources.size,
-      music: Object.freeze({
-        instrument: 'pipa', phrasesPlayed: this.phrasesPlayed,
-        nextPhraseAt: this.nextPhraseAt, lastPhraseAt: this.lastPhraseAt,
-        activePlucks: this.musicSources.size, mix: this.lastMusicMix,
-        firstDelaySeconds: [12, 18], gapSeconds: [35, 65],
-      }),
     });
   }
 
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    this.nextPhraseAt = null;
     for (const source of [...this.layers, ...this.activeSources]) {
       try { source.stop(); } catch (_) { /* Already finished. */ }
       source.disconnect();
@@ -379,8 +248,6 @@ export class Soundscape {
     this.layers.length = 0;
     this.activeSources.clear();
     this.transientGains.clear();
-    this.musicSources.clear();
-    this.pipaBuffers.clear();
     this.windGust?.disconnect();
     this.master?.disconnect();
     this.context?.close().catch(() => {});

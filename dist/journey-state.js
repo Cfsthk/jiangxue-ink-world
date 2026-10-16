@@ -12,23 +12,24 @@ export const LUGGAGE = Object.freeze([
     title:'故人遠，前路長',year:'遠行途中・一封送別信',text:'「這次分別，不知何日才能再見。路途遙遠，望你珍重。」', detail:'這封送別信是遊戲創作。從前一起商議國事的同伴，如今各散遠方；他帶着思念，繼續走向陌生的永州。' },
 ].map(Object.freeze));
 
-// The bird follows the biography in order; a return, not a pickup, advances it.
+// Each pickup advances the biography; the five keepsakes return together at the end.
 export function createJourneyState() {
   const statuses = Object.fromEntries(LUGGAGE.map(item => [item.id,'covered']));
-  let carried = null;
   const storiesRead=new Set();
-  const count = () => Object.values(statuses).filter(s=>s==='returned').length;
-  const activeId = () => LUGGAGE.find(i=>statuses[i.id]!=='returned')?.id ?? null;
-  const unlocked = id => Object.hasOwn(statuses,id) && (id===activeId() || statuses[id]==='returned');
+  const count = status => Object.values(statuses).filter(s=>status==='collected' ? s==='collected'||s==='returned' : s===status).length;
+  const activeId = () => LUGGAGE.find(i=>!['collected','returned'].includes(statuses[i.id]))?.id ?? null;
+  const readyToReturn = () => count('collected')===LUGGAGE.length && count('returned')===0;
+  const unlocked = id => Object.hasOwn(statuses,id) && (id===activeId() || ['collected','returned'].includes(statuses[id]));
   return {
-    get carried() { return carried; },
-    get returned() { return count(); },
-    get complete() { return count()===LUGGAGE.length; },
+    get collected() { return count('collected'); },
+    get returned() { return count('returned'); },
+    get readyToReturn() { return readyToReturn(); },
+    get complete() { return count('returned')===LUGGAGE.length; },
     get activeId() { return activeId(); },
     status: id => statuses[id],
     unlocked,
     begin(id) {
-      if(carried || !unlocked(id) || statuses[id]!=='covered')return false;
+      if(!unlocked(id) || statuses[id]!=='covered')return false;
       statuses[id]='working';return true;
     },
     reveal(id) {
@@ -36,14 +37,16 @@ export function createJourneyState() {
       statuses[id]='ready';return true;
     },
     pickup(id) {
-      if(carried || !unlocked(id) || statuses[id]!=='ready')return false;
-      statuses[id]='carried';carried=id;storiesRead.add(id);return true;
+      if(!unlocked(id) || statuses[id]!=='ready')return false;
+      statuses[id]='collected';storiesRead.add(id);return true;
     },
     deposit() {
-      if(!carried)return null;
-      const id=carried;statuses[id]='returned';carried=null;return id;
+      if(!readyToReturn())return null;
+      const ids=LUGGAGE.map(item=>item.id);
+      for(const id of ids)statuses[id]='returned';
+      return ids;
     },
-    reset() { carried=null;storiesRead.clear();for(const item of LUGGAGE)statuses[item.id]='covered'; },
-    snapshot() { return {carried,activeId:activeId(),returned:count(),complete:count()===LUGGAGE.length,letterUnlocked:unlocked('farewell'),storiesRead:[...storiesRead],items:LUGGAGE.map(i=>({id:i.id,name:i.name,status:statuses[i.id],unlocked:unlocked(i.id),x:i.x,z:i.z}))}; },
+    reset() { storiesRead.clear();for(const item of LUGGAGE)statuses[item.id]='covered'; },
+    snapshot() { return {collected:count('collected'),activeId:activeId(),returned:count('returned'),readyToReturn:readyToReturn(),complete:count('returned')===LUGGAGE.length,letterUnlocked:unlocked('farewell'),storiesRead:[...storiesRead],items:LUGGAGE.map(i=>({id:i.id,name:i.name,status:statuses[i.id],unlocked:unlocked(i.id),x:i.x,z:i.z}))}; },
   };
 }

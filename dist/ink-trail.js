@@ -1,12 +1,18 @@
 import * as THREE from './vendor/three.module.js';
-import { createBirdRoute, routeLength, pointOnRoute, nearestRouteDistance } from './bird-route.js?v=1.1.0';
+import { createBirdRoute, routeLength, pointOnRoute, nearestRouteDistance } from './bird-route.js?v=1.2.0';
 
-// The trail follows the task, so finding an object always sends it back to the cart.
+// The trail visits all five keepsakes before taking the full collection to the cart.
 export function inkTrailDestination(state,items,depositPosition){
   if(state.complete)return null;
-  if(state.carried)return {key:'wagon',id:state.carried,x:depositPosition.x,z:depositPosition.z};
+  if(state.readyToReturn)return {key:'wagon',id:null,x:depositPosition.x,z:depositPosition.z};
   const item=items.find(item=>item.id===state.activeId);
   return item?{key:`item:${item.id}`,id:item.id,x:item.x,z:item.z}:null;
+}
+
+// Read-only audit of the actual six walking legs, including the final return.
+export function inkTrailLegs(items,spawn,depositPosition){
+  return [...items.map((item,index)=>({item:item.id,direction:'to-item',from:index?items[index-1]:spawn,to:item})),
+    ...(items.length?[{item:'wagon',direction:'to-wagon',from:items.at(-1),to:depositPosition}]:[])];
 }
 
 function washTexture(){
@@ -95,12 +101,11 @@ export function createInkTrail({scene,journey,canWalk,heightAt,roads=[],spawn}){
   }
   function update(dt,time,player,playing){
     const goal=inkTrailDestination(journey.getState(),journey.items,journey.depositPosition);
-    // The final deposit opens the ending immediately, before another playing frame.
-    if(!goal&&destination!=='finished'){makeRoute(player,null);return;}
+    // Task changes apply even while its story is open; only breathing and replans pause.
+    if((goal?.key??'finished')!==destination)makeRoute(player,goal);
     if(!playing)return;
     clock+=dt;uniforms.clock.value=clock;cooldown=Math.max(0,cooldown-dt);
-    if((goal?.key??'finished')!==destination){makeRoute(player,goal);}
-    else if(goal&&cooldown===0){
+    if(goal&&cooldown===0){
       const nearest=nearestRouteDistance(path,player);
       if(!path.length||nearest.distance>3.8)makeRoute(player,goal);
     }
@@ -110,9 +115,6 @@ export function createInkTrail({scene,journey,canWalk,heightAt,roads=[],spawn}){
   return {update,reset,
     getState:()=>({mode:destination==='finished'?'finished':dots?'marked':'blocked',destination,targetId,dots,routeLength:length,routeProgress:length?along/length:0,routeNodes:path.length,failedRoutes,replans,graphNodes:planner.nodeCount,groundOffset:.046,points:path.map(p=>({...p,y:heightAt(p.x,p.z)}))}),
     routeTo:(from,to)=>planner.find(from,to).map(p=>({...p,y:heightAt(p.x,p.z)})),
-    inspectRoutes:()=>journey.items.flatMap(item=>[
-      {item:item.id,direction:'to-item',points:planner.find(journey.depositPosition,item)},
-      {item:item.id,direction:'to-wagon',points:planner.find(item,journey.depositPosition)},
-    ]).map(leg=>({...leg,length:routeLength(leg.points),valid:leg.points.length>1&&leg.points.every((p,i)=>canWalk(p.x,p.z)&&(!i||planner.clear(leg.points[i-1],p)))})),
+    inspectRoutes:()=>inkTrailLegs(journey.items,spawn,journey.depositPosition).map(leg=>{const points=planner.find(leg.from,leg.to);return {...leg,points,length:routeLength(points),valid:points.length>1&&points.every((p,i)=>canWalk(p.x,p.z)&&(!i||planner.clear(points[i-1],p)))};}),
   };
 }

@@ -21,9 +21,12 @@ class Node {
   stop(time) { this.stops.push(time); }
 }
 class Context {
-  constructor() { this.currentTime = 0; this.sampleRate = 12000; this.state = 'running'; this.destination = new Node(); }
+  constructor() {
+    this.currentTime = 0; this.sampleRate = 12000; this.state = 'running';
+    this.destination = new Node(); this.sources = [];
+  }
   createGain() { return new Node(); }
-  createBufferSource() { return new Node(); }
+  createBufferSource() { const source = new Node(); this.sources.push(source); return source; }
   createBiquadFilter() { return new Node(); }
   createOscillator() { return new Node(); }
   createBuffer(channels, length, sampleRate) {
@@ -41,59 +44,60 @@ async function winterSound(t) {
   return sound;
 }
 
-test('pipa phrases leave a quiet opening and wide gaps while wind stays dominant', async t => {
+test('ambient wind and river continue without introducing any musical sources', async t => {
   const sound = await winterSound(t), ctx = sound.context;
-  const first = sound.getDiagnostics().music.nextPhraseAt;
-  assert.ok(first >= 12 && first <= 18);
-  ctx.currentTime = first - 0.01; sound.update();
-  assert.equal(sound.getDiagnostics().music.phrasesPlayed, 0);
-  ctx.currentTime = first; sound.update();
-  const music = sound.getDiagnostics().music;
-  assert.equal(music.phrasesPlayed, 1);
-  assert.ok(music.activePlucks >= 2 && music.activePlucks <= 4);
-  assert.ok(music.nextPhraseAt - first >= 35 && music.nextPhraseAt - first <= 66.24);
-  assert.ok(music.mix > 0 && music.mix < 0.011);
-  assert.ok(music.mix < sound.getDiagnostics().windLevel / 3);
-  sound.update();
-  assert.equal(sound.getDiagnostics().music.phrasesPlayed, 1);
-  assert.equal(typeof sound.call, 'undefined');
-});
-
-test('mute cancels pending plucks, and resuming or restarting never catches up missed phrases', async t => {
-  const sound = await winterSound(t), ctx = sound.context;
-  ctx.currentTime = sound.nextPhraseAt; sound.update();
-  const plucks = [...sound.musicSources];
-  sound.setMuted(true);
-  assert.equal(sound.nextPhraseAt, null);
-  for (const source of plucks) assert.equal(source.stops.at(-1), ctx.currentTime + 0.05);
-  ctx.currentTime = 600; sound.update();
-  assert.equal(sound.phrasesPlayed, 1);
-  sound.setMuted(false); sound.update();
-  assert.ok(sound.nextPhraseAt >= 612 && sound.nextPhraseAt <= 618);
-  assert.equal(sound.phrasesPlayed, 1);
-  sound.resetTransients(); sound.update();
-  assert.equal(sound.phrasesPlayed, 0);
-  assert.equal(sound.lastPhraseAt, null);
-  assert.ok(sound.nextPhraseAt > ctx.currentTime);
-  sound.dispose();
-  assert.equal(sound.musicSources.size, 0);
-  assert.equal(sound.pipaBuffers.size, 0);
-  assert.equal(ctx.state, 'closed');
-});
-
-test('cached plucked strings have bounded peaks, a soft start and a decaying tail', async t => {
-  const sound = await winterSound(t);
-  const buffer = sound.makePipaBuffer(293.66), samples = buffer.getChannelData(0);
-  assert.equal(sound.makePipaBuffer(293.66), buffer);
-  assert.equal(Math.abs(samples[0]), 0);
-  let early = 0, late = 0, peak = 0;
-  for (let i = 0; i < samples.length; i++) {
-    assert.ok(Number.isFinite(samples[i]));
-    peak = Math.max(peak, Math.abs(samples[i]));
-    if (i < 2400) early += samples[i] ** 2;
-    if (i >= samples.length - 2400) late += samples[i] ** 2;
+  assert.equal(ctx.sources.length, 2);
+  for (let seconds = 0; seconds <= 600; seconds += 10) {
+    ctx.currentTime = seconds;
+    sound.update({ wind: 0.7, river: 0.5, shelter: 0 });
   }
-  assert.ok(peak > 0.70 && peak <= 0.720001);
-  assert.ok(early > late * 20);
-  assert.ok(Math.abs(samples.at(-1)) < 0.0001);
+  assert.equal(ctx.sources.length, 2);
+  assert.ok(sound.getDiagnostics().gustScheduledUntil > ctx.currentTime);
+  assert.equal(sound.getDiagnostics().activeTransients, 0);
+  assert.ok(sound.layers.every(source => source.loop && source.stops.length === 0));
+});
+
+test('shelter softens wind and river, while mute fades footfalls and restores ambience cleanly', async t => {
+  const sound = await winterSound(t), ctx = sound.context;
+  sound.update({ wind: 0.8, river: 0.7, shelter: 0 });
+  const openWind = sound.getDiagnostics().windLevel, openRiver = sound.river.gain.gain.value;
+  sound.update({ shelter: 1 });
+  assert.ok(sound.getDiagnostics().windLevel < openWind / 4);
+  assert.ok(sound.river.gain.gain.value < openRiver / 2);
+  sound.step();
+  const footfalls = [...sound.activeSources];
+  assert.equal(footfalls.length, 2);
+  sound.setMuted(true);
+  assert.equal(sound.master.gain.value, 0);
+  for (const source of footfalls) assert.equal(source.stops.at(-1), ctx.currentTime + 0.05);
+  ctx.currentTime = 600; sound.update(); sound.step(); sound.rustle();
+  assert.equal(ctx.sources.length, 4);
+  sound.setMuted(false); sound.update();
+  assert.ok(sound.master.gain.value > 0);
+  assert.equal(ctx.sources.length, 4);
+  assert.ok(sound.getDiagnostics().gustScheduledUntil > ctx.currentTime);
+  assert.ok(sound.layers.every(source => source.stops.length === 0));
+});
+
+test('restarting clears transient footsteps without duplicating ambient layers; disposal stops all audio', async t => {
+  const sound = await winterSound(t), ctx = sound.context;
+  sound.step(); sound.rustle();
+  const transients = [...sound.activeSources], layers = [...sound.layers];
+  sound.resetTransients();
+  assert.equal(sound.getDiagnostics().lastStep, null);
+  assert.equal(sound.getDiagnostics().lastStepDuration, 0);
+  for (const source of transients) {
+    assert.equal(source.stops.at(-1), ctx.currentTime + 0.05);
+    source.onended();
+  }
+  assert.equal(sound.getDiagnostics().activeTransients, 0);
+  sound.step();
+  assert.equal(sound.getDiagnostics().activeTransients, 2);
+  assert.deepEqual(sound.layers, layers);
+  const allSources = [...ctx.sources];
+  sound.dispose();
+  for (const source of allSources) assert.ok(source.stops.length > 0 && source.disconnected);
+  assert.equal(sound.layers.length, 0);
+  assert.equal(sound.activeSources.size, 0);
+  assert.equal(ctx.state, 'closed');
 });

@@ -95,3 +95,16 @@ dialog::backdrop{background:#e3e7e124;backdrop-filter:blur(2px)}
 @media(max-width:650px){#story-title[data-long=true]{font-size:34px;letter-spacing:.11em}}
 
 .story-copy,.story-detail,.menu-description,.luggage-instruction,.fiction-note{font-family:InkBrush,InkCalligraphy,serif}
+
+/* The title screen returns to the original open landscape, without a paper panel. */
+.luggage-sheet{padding:47px 48px 38px}
+#close-luggage{right:34px;top:28px;width:32px;height:32px;font-size:21px;font-weight:400}
+#luggage-list button,#luggage-list .luggage-row{grid-template-columns:72px 1fr;gap:17px;padding:15px 0;min-height:82px}
+#luggage-list strong{font-size:23px;letter-spacing:.06em}
+#continue-journey{margin-top:20px}
+@media(max-width:650px){
+ .luggage-sheet{padding:43px 32px 31px}
+ #close-luggage{right:26px;top:24px}
+ #luggage-list button,#luggage-list .luggage-row{grid-template-columns:57px 1fr;gap:13px;padding:12px 0;min-height:71px}
+ #luggage-list strong{font-size:20px}
+}

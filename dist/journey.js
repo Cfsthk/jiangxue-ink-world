@@ -1,9 +1,9 @@
 import * as THREE from './vendor/three.module.js';
-import { LUGGAGE, createJourneyState } from './journey-state.js?v=1.1.0';
-import { makeJourneyPalette, buildWagon, buildLuggage, buildDeadBranch } from './journey-props.js?v=1.1.0';
-import { paintDiagnostics } from './painted-rig.js?v=1.1.0';
-import { buildWinterPlant, BrushBatch, tube } from './props.js?v=1.1.0';
-export const WAGON_SITE=Object.freeze({x:-27.8,z:62,yaw:0});
+import { LUGGAGE, createJourneyState } from './journey-state.js?v=1.2.0';
+import { makeJourneyPalette, buildWagon, buildLuggage, buildDeadBranch } from './journey-props.js?v=1.2.0';
+import { paintDiagnostics } from './painted-rig.js?v=1.2.0';
+import { buildWinterPlant, BrushBatch, tube } from './props.js?v=1.2.0';
+export const WAGON_SITE=Object.freeze({x:-28.6,z:62,yaw:0});
 export const JOURNEY_SPAWN=Object.freeze({x:-27.8,z:54.5,yaw:Math.PI,pitch:-.025});
 const ease=t=>t*t*(3-2*t);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -29,13 +29,12 @@ export function createJourney({scene,palette,heightAt,collisions}) {
   for(const [dz,r] of [[-1.05,1.77],[.6,1.78],[2,1.7],[4.5,.72],[5.8,.64]])collisions.push({x:WAGON_SITE.x,z:WAGON_SITE.z+dz,r});
   const depositPosition=new THREE.Vector3(WAGON_SITE.x,heightAt(WAGON_SITE.x,WAGON_SITE.z-3),WAGON_SITE.z-3);
   const cargo=new THREE.Group();wagon.body.add(cargo);
-  const carryRoot=new THREE.Group();carryRoot.name='手中行李・一次一件';scene.add(carryRoot);
   let working=null,elapsed=0,lastCompleted=null;
 
   LUGGAGE.forEach((data,index)=>{
     const root=new THREE.Group();root.name=`尋物地點・${data.name}`;root.position.set(data.x,heightAt(data.x,data.z),data.z);scene.add(root);
     const item=new THREE.Group(),model=buildLuggage(data.id,p);
-    // Keep reveal, carry and cargo transforms outside the true-to-scale painted model.
+    // Keep reveal and cargo transforms outside the true-to-scale painted model.
     model.scale.setScalar(data.id==='hat'?.80:.84);item.add(model);item.rotation.y=index*.52+.2;root.add(item);
     const cover=new THREE.Group();root.add(cover);
     const coverBase=new THREE.Vector3(),itemBase=new THREE.Vector3();
@@ -88,33 +87,35 @@ export function createJourney({scene,palette,heightAt,collisions}) {
 
   function candidate(player) {
     const returnDistance=Math.hypot(player.x-depositPosition.x,player.z-depositPosition.z);
-    if(returnDistance<3.0&&Math.abs(player.y-1.65-depositPosition.y)<3.2)return {type:'wagon',root:wagon.rig,position:depositPosition,promptPosition:wagon.rig.position.clone().add(new THREE.Vector3(0,1.55,-1.65)),radius:3,label:state.carried?`放回${LUGGAGE.find(i=>i.id===state.carried).name}`:'查看車上行李'};
+    if(state.readyToReturn&&returnDistance<3.0&&Math.abs(player.y-1.65-depositPosition.y)<3.2)return {type:'wagon',root:wagon.rig,position:depositPosition,promptPosition:wagon.rig.position.clone().add(new THREE.Vector3(0,1.55,-1.65)),radius:3,label:'放回全部行李'};
     let best=null,distance=Infinity;
     for(const site of sites.values()){
-      const {data}=site,s=state.status(data.id);if(s==='returned'||s==='carried'||!state.unlocked(data.id))continue;
+      const {data}=site,s=state.status(data.id);if(['returned','collected','working'].includes(s)||!state.unlocked(data.id))continue;
       const d=Math.hypot(player.x-data.x,player.z-data.z),dy=Math.abs(player.y-1.65-site.root.position.y);
-      if(d<2.8&&dy<3.5&&d<distance){distance=d;best={type:'luggage',id:data.id,root:site.root,position:site.root.position,promptPosition:site.root.position.clone().add(new THREE.Vector3(0,data.id==='hat'&&s==='covered'?1.65:.65,0)),busy:s==='working',radius:2.8,label:state.carried?'先把手中行李送回馬車':s==='ready'?`拾起${data.name}`:s==='working'?'正在移開遮擋物…':data.action};}
+      if(d<2.8&&dy<3.5&&d<distance){distance=d;best={type:'luggage',id:data.id,root:site.root,position:site.root.position,promptPosition:site.root.position.clone().add(new THREE.Vector3(0,data.id==='hat'&&s==='covered'?1.65:.65,0)),radius:2.8,label:s==='ready'?`拾起${data.name}`:data.action};}
     }
     return best;
   }
   function act(target) {
     if(state.complete)return null;
     if(target.type==='wagon'){
-      if(!state.carried)return {journal:true};
-      const id=state.deposit(),site=sites.get(id),index=LUGGAGE.findIndex(i=>i.id===id);
-      cargo.add(site.item);site.item.visible=true;site.item.position.set(index%2===0?-.50:.48,1.33,-.98+Math.floor(index/2)*.54);site.item.rotation.set(0,index*.45-.4,0);site.item.scale.setScalar(id==='hat'?.77:.74);
-      carryRoot.clear();lastCompleted=id;
-      return {deposited:id,complete:state.complete};
+      const ids=state.deposit();if(!ids)return null;
+      for(const [index,id] of ids.entries()){
+        const site=sites.get(id);cargo.add(site.item);site.item.visible=true;
+        site.item.position.set(index%2===0?-.50:.48,1.33,-.98+Math.floor(index/2)*.54);
+        site.item.rotation.set(0,index*.45-.4,0);site.item.scale.setScalar(id==='hat'?.77:.74);
+      }
+      lastCompleted='wagon';
+      return {deposited:ids,complete:state.complete};
     }
-    if(state.carried)return {message:'手中只能帶一件行李，先送回馬車放好。'};
     const site=sites.get(target.id);if(!site)return null;
     if(state.status(target.id)==='ready'){
       if(!state.pickup(target.id))return null;
-      carryRoot.add(site.item);site.item.position.set(0,0,0);site.item.rotation.set(-.10,target.id==='hat'?Math.PI:0,.08);site.item.scale.setScalar(.65);
-      return {picked:target.id,story:site.data,message:`已取回${site.data.name}，帶回馬車放好。`};
+      site.item.visible=false;
+      return {picked:target.id,story:site.data};
     }
     if(working||!state.begin(target.id))return null;
-    working=target.id;elapsed=0;return {working:target.id,message:site.data.action+'…'};
+    working=target.id;elapsed=0;return {working:target.id};
   }
   function update(dt,time,player) {
     if(working){
@@ -139,18 +140,11 @@ export function createJourney({scene,palette,heightAt,collisions}) {
       // Snow-bound grass moves only at the tips; this reed cover leans as a rooted clump.
       if(site.data.id==='farewell'&&s==='covered')site.cover.children.forEach((reed,i)=>{reed.rotation.z=Math.sin(time*.7+i)*.035;});
     }
-    carryRoot.visible=Boolean(state.carried);
-    if(state.carried){
-      const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(player.pitch,player.yaw,0,'YXZ'));
-      const carryAspect=Math.min(1,innerWidth/innerHeight/1.05);carryRoot.scale.setScalar(carryAspect);
-      const offset=new THREE.Vector3(.43*carryAspect*carryAspect,-.62+.30*(1-carryAspect)+Math.sin(time*5)*Math.min(.018,Math.hypot(player.vx||0,player.vz||0)*.006),-1.0).applyQuaternion(q);
-      carryRoot.position.copy(offset).add(new THREE.Vector3(player.x,player.y,player.z));carryRoot.quaternion.copy(q);
-    }
     wagon.horse.scale.y=1+Math.sin(time*1.15)*.0015;
 
   }
   function reset() {
-    state.reset();working=null;elapsed=0;lastCompleted=null;carryRoot.clear();cargo.clear();
+    state.reset();working=null;elapsed=0;lastCompleted=null;cargo.clear();
     wagon.rig.position.set(WAGON_SITE.x,heightAt(WAGON_SITE.x,WAGON_SITE.z),WAGON_SITE.z);wagon.horse.position.y=heightAt(WAGON_SITE.x,WAGON_SITE.z+4.9)-wagon.rig.position.y-.03;wagon.wheels.forEach(w=>w.rotation.x=0);
     for(const site of sites.values()){
       site.root.add(site.item);site.item.position.copy(site.itemBase);site.item.rotation.copy(site.itemRotation);site.item.scale.copy(site.itemScale);site.item.visible=site.data.id!=='decree';
@@ -159,6 +153,6 @@ export function createJourney({scene,palette,heightAt,collisions}) {
     }
   }
   return {candidate,act,update,reset,ready:wagon.ready,focusPoint:()=>working?sites.get(working).item.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0,.18,0)):null,items:LUGGAGE,wagon,spawn:JOURNEY_SPAWN,depositPosition,
-    getState:()=>({...state.snapshot(),working,progress:working?clamp(elapsed/sites.get(working).data.duration,0,1):0,lastCompleted,art:{wagon:paintDiagnostics(wagon.body),horse:paintDiagnostics(wagon.horse),items:[...sites.values()].map(s=>({id:s.data.id,modelScale:s.item.children[0].scale.x,...paintDiagnostics(s.item)}))},wagon:{x:WAGON_SITE.x,z:WAGON_SITE.z,facing:'+z',returnX:depositPosition.x,returnZ:depositPosition.z}}),
+    getState:()=>({...state.snapshot(),inventoryVisible:false,working,progress:working?clamp(elapsed/sites.get(working).data.duration,0,1):0,lastCompleted,art:{wagon:paintDiagnostics(wagon.body),horse:paintDiagnostics(wagon.horse),items:[...sites.values()].map(s=>({id:s.data.id,modelScale:s.item.children[0].scale.x,...paintDiagnostics(s.item)}))},wagon:{x:WAGON_SITE.x,z:WAGON_SITE.z,facing:'+z',returnX:depositPosition.x,returnZ:depositPosition.z}}),
   };
 }
