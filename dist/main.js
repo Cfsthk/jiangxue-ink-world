@@ -1,7 +1,7 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js';
-import { Soundscape } from './audio.js';
-import { InkWash } from './wash.js';
+import { createWorld } from './world.js?v=0.3.0';
+import { Soundscape } from './audio.js?v=0.3.0';
+import { InkWash } from './wash.js?v=0.3.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');

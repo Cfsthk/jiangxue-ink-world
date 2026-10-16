@@ -1,8 +1,9 @@
 import * as THREE from './vendor/three.module.js';
-import { createBrushMaterials } from './ink-materials.js';
-import { buildFishingBoat, buildBrushPine } from './props.js';
+import { createBrushMaterials } from './ink-materials.js?v=0.3.0';
+import { buildFishingBoat, buildBrushPine } from './props.js?v=0.3.0';
+import { createRiverMaterial } from './river.js?v=0.3.0';
 
-// Walkable terrain, layered stone, snow caps, pines and the boat are real 3D.
+// Walkable terrain, weathered stone, pines and the boat are real 3D.
 // Chinese brush pigments wrap their surfaces; distant paintings complete the view.
 const TAU = Math.PI * 2;
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
@@ -27,6 +28,9 @@ export function createWorld() {
   const pines = [];
   const waterAnimations = [];
   const mountainPaintMaterials = [];
+  const farPineMaterials = [];
+  const pathSamples = [];
+  const rockSnowMaterials = new Map();
   const palette = createBrushMaterials();
   const { inkMaterial, snowMaterial, stoneMaterial, cliffMaterial, branchMaterial, foliageMaterial, distantMaterials } = palette;
   let randomSeed = 198406;
@@ -121,28 +125,7 @@ export function createWorld() {
   bankGeometry.setIndex(bankIndices);bankGeometry.computeVertexNormals();
   scene.add(new THREE.Mesh(bankGeometry,stoneMaterial));
 
-  // Water has long, sparsely spaced brush marks; its empty surface is deliberate.
-  const riverMaterial = new THREE.ShaderMaterial({
-    uniforms:{uTime:{value:0}},
-    vertexShader:`varying vec3 vWater;void main(){vWater=(modelMatrix*vec4(position,1.)).xyz;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-    fragmentShader:`
-      uniform float uTime; varying vec3 vWater;
-      void main(){
-        float drift=vWater.z+sin(vWater.x*.09)*2.5+uTime*.09;
-        float stroke=pow(max(0.,sin(drift*.43+sin(vWater.x*.027)*3.)),76.);
-        float broken=smoothstep(.15,.8,sin(vWater.x*.19+vWater.z*.03)*.5+.5);
-        float wash=sin(vWater.x*.034+vWater.z*.047)*.5+.5;
-        vec3 c=mix(vec3(.792,.830,.851),vec3(.847,.872,.883),wash);
-        float second=pow(max(0.,sin(drift*.175+sin(vWater.x*.021)*2.)),84.);
-        float third=pow(max(0.,sin(drift*.071+sin(vWater.x*.013)*1.6)),94.);
-        float inkBreak=smoothstep(.32,.82,sin(vWater.x*.13-vWater.z*.017)*.5+.5);
-        c-=vec3(.037,.032,.027)*(stroke*broken+second*inkBreak*.48+third*(1.-broken)*.30);
-        gl_FragColor=vec4(c,1.);
-        #include <colorspace_fragment>
-      }
-    `,
-    side:THREE.DoubleSide,toneMapped:false,
-  });
+  const riverMaterial = createRiverMaterial();
   const water = new THREE.Mesh(new THREE.PlaneGeometry(220, 620), riverMaterial);
   water.rotation.x=-Math.PI/2;water.position.set(85,-.02,0);scene.add(water);
 
@@ -159,6 +142,7 @@ export function createWorld() {
     for(let i=0;i<=count;i++){
       const t=i/count,p=curve.getPoint(t),n=curve.getTangent(t);
       const wav=1+Math.sin(i*.67)*.10+Math.sin(i*.23)*.07;
+      if(i%3===0)pathSamples.push({x:p.x,z:p.z,width});
       for(const s of [-1,1]){
         const x=p.x+n.z*width*.5*s*wav,z=p.z-n.x*width*.5*s*wav;
         pathPos.push(x,heightAt(x,z)+.025,z);pathUV.push(s<0?0:1,t*40);
@@ -169,17 +153,39 @@ export function createWorld() {
     const mat=new THREE.ShaderMaterial({
       transparent:true,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,
       vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-      fragmentShader:`varying vec2 vUv;void main(){float edge=smoothstep(0.,.2,vUv.x)*smoothstep(0.,.2,1.-vUv.x);float broken=.5+.5*sin(vUv.y*7.1+sin(vUv.x*20.));gl_FragColor=vec4(.635,.635,.63,edge*(.13+broken*.10));#include <colorspace_fragment>}`.replace(';#include',';\n#include'),
+      fragmentShader:`
+        varying vec2 vUv;
+        float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+        float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
+        void main(){
+          float ragged=.09+noise(vec2(vUv.y*.65,1.3))*.10;
+          float edge=smoothstep(0.,ragged,vUv.x)*smoothstep(0.,ragged,1.-vUv.x);
+          float pigment=noise(vec2(vUv.x*8.,vUv.y*1.6));
+          float reserved=smoothstep(.62,.84,noise(vec2(vUv.x*17.,vUv.y*4.)));
+          float dryEdge=smoothstep(.15,.72,noise(vec2(vUv.x*24.,vUv.y*7.)));
+          float alpha=edge*(.29+pigment*.25)*(1.-reserved*.73)*(.70+dryEdge*.30);
+          gl_FragColor=vec4(.31,.32,.315,alpha);
+          #include <colorspace_fragment>
+        }
+      `,
     });
     scene.add(new THREE.Mesh(geo,mat));
-    // Occasional exposed step edges, rather than a solid paved road.
-    for(let i=1;i<38;i++){
-      const t=i/38,p=curve.getPoint(t),n=curve.getTangent(t);
-      if(i%3!==0)continue;
-      const step=makeRockGroup(width*.40,.21,rand()*30,false,stoneMaterial,.025);
-      step.scale.z=.32+rand()*.15;
-      step.position.set(p.x,heightAt(p.x,p.z)-.165,p.z);
-      step.rotation.y=Math.atan2(n.x,n.z)+Math.sin(i)*.13;
+    // Sparse exposed stones follow distance, with varied gaps and partial widths.
+    // Keep the world random stream unchanged so rocks and trees do not move.
+    let stepSeed=0;
+    for(let i=0;i<24;i++){const value=rand();if(i===0)stepSeed=Math.floor(value*4294967296);}
+    const stepRand=()=>{stepSeed=(stepSeed*1664525+1013904223)>>>0;return stepSeed/4294967296;};
+    const length=curve.getLength();
+    for(let distance=1.5+stepRand()*3.5;distance<length-1.5;distance+=1.6+stepRand()*5.8){
+      if(stepRand()>.48)continue;
+      const p=curve.getPointAt(distance/length),n=curve.getTangentAt(distance/length);
+      const offset=(stepRand()-.5)*width*.40;
+      const x=p.x+n.z*offset,z=p.z-n.x*offset;
+      const radius=width*(.11+stepRand()*.22),height=.15+stepRand()*.13;
+      const step=makeRockGroup(radius,height,stepRand()*30,false,stoneMaterial);
+      step.scale.set(.82+stepRand()*.43,1,.20+stepRand()*.43);
+      step.position.set(x,heightAt(x,z)-.09-stepRand()*.045,z);
+      step.rotation.y=Math.atan2(n.x,n.z)+(stepRand()-.5)*.78;
       step.name='覆雪石階';scene.add(step);
     }
   }
@@ -189,6 +195,11 @@ export function createWorld() {
   makePath([[-46,-12],[-46,-29],[-35,-43],[-21,-43],[-10,-34],[-4,-24]],2.2);
   makePath([[-43,35],[-55,43],[-64,33],[-59,20],[-44,16],[-33,3]],2.0);
 
+  // Extra connecting loops keep the small world open to different walks.
+  makePath([[-46,-12],[-57,-19],[-66,-29],[-67,-47],[-55,-58],[-42,-55],[-35,-43]],2.5);
+  makePath([[-22,32],[-9,35],[-10,48],[-23,59],[-39,60],[-50,50],[-55,43]],2.5);
+  makePath([[-17,0],[-7,5],[-9,20],[-16,16]],2.3);
+
   // Dilute, irregular contact washes sit on the actual snow surface.
   const contactCanvas=document.createElement('canvas');contactCanvas.width=128;contactCanvas.height=128;
   const contactContext=contactCanvas.getContext('2d');
@@ -196,11 +207,11 @@ export function createWorld() {
   contactGradient.addColorStop(0,'rgba(85,85,83,.85)');contactGradient.addColorStop(.35,'rgba(97,97,95,.58)');contactGradient.addColorStop(.72,'rgba(112,112,110,.19)');contactGradient.addColorStop(1,'rgba(112,112,110,0)');
   contactContext.fillStyle=contactGradient;contactContext.fillRect(0,0,128,128);
   const contactTexture=new THREE.CanvasTexture(contactCanvas);contactTexture.colorSpace=THREE.SRGBColorSpace;
-  function addContactWash(x,z,r,seed,opacity=.12,stretch=1){
+  function addContactWash(x,z,r,seed,opacity=.22,stretch=1){
     const positions=[],uv=[],indices=[],n=8;
     for(let j=0;j<=n;j++)for(let i=0;i<=n;i++){
       const u=i/n*2-1,v=j/n*2-1;
-      const px=x+u*r*1.16*stretch,pz=z+v*r*(.86+.06*Math.sin(seed));
+      const px=x+.16*r+u*r*1.22*stretch,pz=z-.11*r+v*r*(.91+.06*Math.sin(seed));
       positions.push(px,heightAt(px,pz)+.016,pz);
       uv.push(i/n+Math.sin(v*4+seed)*.055*(1-u*u),j/n+Math.sin(u*5-seed)*.045*(1-v*v));
     }
@@ -210,108 +221,69 @@ export function createWorld() {
     const wash=new THREE.Mesh(geometry,material);wash.name='淡墨接觸暈';scene.add(wash);return wash;
   }
 
-  // Chiselled, asymmetrical rock masses have uneven crowns and oblique cracks.
-  // No horizontal rings: their ridges and snow edges cannot become white belts.
+  // Smooth, shared normals describe non-periodic, broad weathered folds.
+  // Height-normalised snow is painted on this same surface, with no paper caps.
+  function valueNoise3(x,y,z,seed){
+    const hash=(a,b,c)=>{const h=Math.sin(a*127.1+b*311.7+c*74.7+seed*19.19)*43758.5453;return h-Math.floor(h);};
+    const ix=Math.floor(x),iy=Math.floor(y),iz=Math.floor(z);
+    let fx=x-ix,fy=y-iy,fz=z-iz;fx=fx*fx*(3-2*fx);fy=fy*fy*(3-2*fy);fz=fz*fz*(3-2*fz);
+    const mix=(a,b,t)=>a+(b-a)*t;
+    return mix(mix(mix(hash(ix,iy,iz),hash(ix+1,iy,iz),fx),mix(hash(ix,iy+1,iz),hash(ix+1,iy+1,iz),fx),fy),mix(mix(hash(ix,iy,iz+1),hash(ix+1,iy,iz+1),fx),mix(hash(ix,iy+1,iz+1),hash(ix+1,iy+1,iz+1),fx),fy),fz);
+  }
   function rockGeometry(radius,height,seed=0,spire=false) {
-    const crag=spire||height/radius>1.1;
-    const source=new THREE.IcosahedronGeometry(1,(spire||height>4||radius>2.7)?5:3);
-    const positions=source.attributes.position;
-    for(let i=0;i<positions.count;i++){
-      const ox=positions.getX(i),oy=positions.getY(i),oz=positions.getZ(i);
-      const t=(oy+1)*.5;
-      const grain=Math.sin(ox*4.3+seed)*Math.cos(oz*3.7-seed*.63)*.105
-        +Math.sin(ox*7.4+oz*5.1+oy*2.8+seed)*.055;
-      const xShape=Math.sign(ox)*Math.pow(Math.abs(ox),.79);
-      const zShape=Math.sign(oz)*Math.pow(Math.abs(oz),.82);
-      const fractureA=Math.abs(ox*.72+oz*.48-.16*Math.sin(oy*3.2+seed));
-      const fractureB=Math.abs(ox*.32-oz*.87+.17*Math.cos(oy*2.7+seed));
-      const crack=Math.exp(-fractureA*fractureA/.006)*.08+Math.exp(-fractureB*fractureB/.009)*.065;
-      const radial=1+grain-crack;
-      const crossSection=Math.sqrt(ox*ox+oz*oz);
-      // Below the shoulder a cliff continues with a broad foot into the river.
-      const rootScale=crag&&t<.52?Math.min(5.5,Math.max(1,.93/Math.max(.001,crossSection))):1;
-      const angle=Math.atan2(oz,ox);
-      const lobes=crag?1+.12*Math.sin(angle*3+seed)+.07*Math.cos(angle*5-seed*.4)+.09*Math.sin(t*7+angle*2+seed):1;
-      const waist=crag?1+.10*Math.sin(t*7.2+seed)-.13*smooth(.48,.95,t):1;
-      const leanX=crag?radius*(.17*t-.16*(1-t))*Math.sin(seed+1.3):0;
-      const leanZ=crag?radius*.18*t*Math.cos(seed*.7):0;
-      const x=xShape*radius*radial*rootScale*lobes*waist+Math.sin(t*3.8+seed)*radius*.10*t+leanX;
-      const z=zShape*radius*.83*(radial+Math.cos(oy*4.1+seed)*.045)*rootScale*lobes*(crag?1+.11*Math.cos(t*5.8+seed):1)+leanZ;
-      // Multiple unequal high points interrupt the crown, even on a small rock.
-      const crown=(Math.sin(ox*3.9+seed)*Math.cos(oz*4.8+seed*.34)*.105
-        +Math.sin(ox*8.7-oz*5.3+seed)*.035)*smooth(.22,.84,t);
-      const y=height*(crag?t-.12+crown+grain*.14:Math.max(.005,t+crown+grain*.20));
-      positions.setXYZ(i,x,y,z);
+    const large=spire||height>3||radius>2.7,crag=spire||height/radius>1.1;
+    const geometry=new THREE.SphereGeometry(1,large?30:22,large?22:16);
+    const position=geometry.attributes.position;
+    let minY=Infinity,maxY=-Infinity;
+    for(let i=0;i<position.count;i++){
+      const ox=position.getX(i),oy=position.getY(i),oz=position.getZ(i),t=(oy+1)*.5;
+      const broad=valueNoise3(ox*1.65+seed*.37,oy*.86,oz*1.65-seed*.21,seed)-.5;
+      const fold=valueNoise3(ox*3.3+seed*.13,oy*1.24,oz*3.3+seed*.17,seed+7)-.5;
+      const crown=valueNoise3(ox*2.6+1.4,oy*.66+seed*.1,oz*2.6-2.1,seed+19)-.5;
+      const radial=1+broad*.39+fold*.16;
+      const cross=Math.sqrt(ox*ox+oz*oz);
+      const foot=crag&&t<.46?Math.min(4.2,Math.max(1,.77/Math.max(.001,cross))):1;
+      const shoulder=crag?1-.16*smooth(.56,.98,t):1;
+      const xShape=Math.sign(ox)*Math.pow(Math.abs(ox),.79),zShape=Math.sign(oz)*Math.pow(Math.abs(oz),.84);
+      const x=xShape*radius*radial*foot*shoulder+radius*(broad*.18+t*.10*Math.sin(seed));
+      const z=zShape*radius*.81*(radial+crown*.10)*foot+radius*t*.10*Math.cos(seed*.7);
+      const y=height*(t+(crag?-.10:0)+crown*.14*smooth(.15,.88,t)+fold*.055);
+      position.setXYZ(i,x,y,z);minY=Math.min(minY,y);maxY=Math.max(maxY,y);
     }
-    source.computeVertexNormals();source.userData.height=height;source.userData.seed=seed;
-    return source;
+    geometry.computeVertexNormals();
+    // Sphere UV seams and the poles share an averaged physical normal as well.
+    const normals=geometry.attributes.normal,sums=new Map();
+    for(let i=0;i<position.count;i++){
+      const key=`${position.getX(i).toFixed(5)},${position.getY(i).toFixed(5)},${position.getZ(i).toFixed(5)}`;
+      if(!sums.has(key))sums.set(key,{n:new THREE.Vector3(),ids:[]});
+      const entry=sums.get(key);entry.n.add(new THREE.Vector3().fromBufferAttribute(normals,i));entry.ids.push(i);
+    }
+    for(const entry of sums.values()){entry.n.normalize();for(const i of entry.ids)normals.setXYZ(i,entry.n.x,entry.n.y,entry.n.z);}
+    const snowHeight=new Float32Array(position.count),range=Math.max(.001,maxY-minY);
+    for(let i=0;i<position.count;i++)snowHeight[i]=(position.getY(i)-minY)/range;
+    geometry.setAttribute('snowHeight',new THREE.BufferAttribute(snowHeight,1));
+    geometry.userData.height=height;geometry.userData.seed=seed;geometry.computeBoundingSphere();return geometry;
   }
-  // A separate uneven thin snow shell rests only on upward-facing ledges.
-  function snowCapGeometry(rockGeo,thickness=.055){
-    const source=rockGeo.attributes.position,sourceUV=rockGeo.attributes.uv;
-    const index=rockGeo.index?.array??Uint32Array.from({length:source.count},(_,i)=>i);
-    const positions=[],uvs=[],triangles=[],edges=new Map(),selected=new Map(),midpoints=new Map();
-    const va=new THREE.Vector3(),vb=new THREE.Vector3(),vc=new THREE.Vector3(),normal=new THREE.Vector3();
-    const addVertex=(i)=>{
-      const x=source.getX(i),y=source.getY(i),z=source.getZ(i);
-      const key=`${x.toFixed(5)},${y.toFixed(5)},${z.toFixed(5)}`;
-      if(selected.has(key))return selected.get(key);
-      const n=positions.length/3;
-      positions.push(x,y+thickness*(.8+.25*Math.sin(x*4.7+z*3.3)),z);
-      uvs.push(sourceUV.getX(i),sourceUV.getY(i));selected.set(key,n);return n;
-    };
-    const midpoint=(a,b)=>{
-      const key=a<b?`${a}:${b}`:`${b}:${a}`;if(midpoints.has(key))return midpoints.get(key);
-      const i=positions.length/3,x=(positions[a*3]+positions[b*3])*.5,z=(positions[a*3+2]+positions[b*3+2])*.5;
-      const lift=thickness*.24+Math.min(.018,rockGeo.userData.height*.003)*(1+Math.sin(x*3.2+z*2.7))*.5;
-      positions.push(x,(positions[a*3+1]+positions[b*3+1])*.5+lift,z);
-      uvs.push((uvs[a*2]+uvs[b*2])*.5,(uvs[a*2+1]+uvs[b*2+1])*.5);midpoints.set(key,i);return i;
-    };
-    for(let t=0;t<index.length;t+=3){
-      const a=index[t],b=index[t+1],c=index[t+2];
-      va.fromBufferAttribute(source,a);vb.fromBufferAttribute(source,b);vc.fromBufferAttribute(source,c);
-      normal.subVectors(vb,va).cross(new THREE.Vector3().subVectors(vc,va)).normalize();
-      const avgY=(va.y+vb.y+vc.y)/3;
-      const centreX=(va.x+vb.x+vc.x)/3,centreZ=(va.z+vb.z+vc.z)/3;
-      const snowLine=.59+.055*Math.sin(centreX*1.7+rockGeo.userData.seed)+.055*Math.cos(centreZ*1.6-rockGeo.userData.seed*.6);
-      if(normal.y<.48 || avgY<rockGeo.userData.height*(snowLine+.035))continue;
-      const ia=addVertex(a),ib=addVertex(b),ic=addVertex(c),ab=midpoint(ia,ib),bc=midpoint(ib,ic),ca=midpoint(ic,ia);
-      triangles.push(ia,ab,ca,ab,ib,bc,ca,bc,ic,ab,bc,ca);
-      for(const [v,w] of [[a,b],[b,c],[c,a]]){
-        const keyFor=i=>`${source.getX(i).toFixed(5)},${source.getY(i).toFixed(5)},${source.getZ(i).toFixed(5)}`;
-        const ka=keyFor(v),kb=keyFor(w),key=ka<kb?`${ka}|${kb}`:`${kb}|${ka}`;
-        const edge=edges.get(key);if(edge)edge.count++;else edges.set(key,{v,w,count:1});
-      }
-    }
-    // A shallow irregular lip makes the white cover a physical layer.
-    for(const edge of edges.values())if(edge.count===1){
-      const a=addVertex(edge.v),b=addVertex(edge.w),m=midpoint(a,b),n=positions.length/3;
-      for(const i of [edge.v,edge.w]){positions.push(source.getX(i),source.getY(i)-thickness*.25,source.getZ(i));uvs.push(sourceUV.getX(i),sourceUV.getY(i));}
-      positions.push((source.getX(edge.v)+source.getX(edge.w))*.5,(source.getY(edge.v)+source.getY(edge.w))*.5-thickness*.25,(source.getZ(edge.v)+source.getZ(edge.w))*.5);
-      uvs.push((sourceUV.getX(edge.v)+sourceUV.getX(edge.w))*.5,(sourceUV.getY(edge.v)+sourceUV.getY(edge.w))*.5);
-      triangles.push(a,n,m,m,n,n+2,m,n+2,b,b,n+2,n+1);
-    }
-    const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));geo.setIndex(triangles);geo.computeVertexNormals();return geo;
-  }
-  function makeRockGroup(radius,height,seed,spire,material,capThickness=.055){
+  function makeRockGroup(radius,height,seed,spire,material){
     const group=new THREE.Group(),geometry=rockGeometry(radius,height,seed,spire);
-    group.add(new THREE.Mesh(geometry,material));
-    group.add(new THREE.Mesh(snowCapGeometry(geometry,capThickness),snowMaterial));
+    const snowAmount=height<.35?.67:.85,key=`${material.uuid}:${snowAmount}`;
+    if(!rockSnowMaterials.has(key))rockSnowMaterials.set(key,palette.withSnow(material,snowAmount));
+    group.add(new THREE.Mesh(geometry,rockSnowMaterials.get(key)));
     group.name=spire?'水墨斷崖':'層理雪岩';return group;
   }
   function addRock(x,z,r=1,h=1,material=stoneMaterial,ground=true,spire=false,addCollision=false){
-    const rock=makeRockGroup(r,h,rand()*20,spire,material,Math.min(.13,.035+h*.016));
+    if(ground)x=Math.min(x,bank(z)-Math.max(r*1.4,r+.6));
+    const rock=makeRockGroup(r,h,rand()*20,spire,material);
     rock.position.set(x,ground?heightAt(x,z)-h*((spire||h/r>1.1)?.35:.26):(spire?-3.6:-.48),z);
     rock.rotation.y=rand()*TAU;scene.add(rock);
     if(addCollision)collisions.push({x,z,r:r*.84});
-    if(ground&&r>.7)addContactWash(x,z,r,randomSeed*.001,.12);
+    if(ground&&r>.7)addContactWash(x,z,r,randomSeed*.001,.22,1.12);
     return rock;
   }
 
   // A few exposed rocks leave the snow, river and sky generous empty areas.
   const nearRocks=[[-20,42,1.8,1.5],[-35,51,1.3,.8],[-50,29,1.5,1.6],[-23,18,.9,.65],[-40,3,1.5,1.4],[-53,-17,2.6,2.8],[-39,-25,1.4,1.1],[-19,-39,1.7,1.5],[-12,-19,1.5,1.3],[-5,-29,.8,.7],[-1,-16,1.4,1.2],[-4,-35,1.2,.8],[-8,-28,.55,.4],[-6,-21,.55,.35],[-.2,-28,.8,.6],[-2,-40,1.25,1],[-5,16,1.3,1.2],[-2,29,1.4,1.1],[-68,48,2.8,3.1],[-68,-24,2.3,2.8]];
   nearRocks.forEach(([x,z,r,h])=>addRock(x,z,r,h,stoneMaterial,true,false,r>1.4));
-  [[12,-53,1.5,1.2],[35,-51,2.6,2.5],[47,-2,1.6,1.5],[27,45,2.4,1.6],[6,12,.8,.8],[48,-79,3.3,3.5]].forEach(([x,z,r,h])=>addRock(x,z,r,h,stoneMaterial,false));
 
   // A cut into the hillside: broad snow ledges above tall, brush-marked faces.
   // Their downhill faces form the near-left frame seen in the original painting.
@@ -327,12 +299,32 @@ export function createWorld() {
     const z=-16-i*2.4+Math.sin(i)*.6,x=-1.7-Math.sin(i*2.1)*1.2;
     addRock(x,z,.32+rand()*.47,.22+rand()*.48,stoneMaterial,true,false,false);
   }
-  // The far bank rises on the right in overlapping broad crag clusters.
-  // Their irregular silhouettes leave the lonely boat against open water.
-  for(const [x,z,r,h,yaw] of [[60,-24,10,37,.27],[66,-35,7,28,-.18],[65,-8,8,31,.48],[69,18,12,40,.10],[61,29,8,29,-.28]]){
-    const cliff=addRock(x,z,r,h,cliffMaterial,false,true,false);cliff.rotation.y=yaw;
+  // A continuous low opposite shore bounds the broad, uninterrupted channel.
+  // Its mountains remain distant ink paintings, with no pillars in the river.
+  const farBankAt=z=>67+Math.sin(z*.019)*6+Math.sin(z*.041)*2.5;
+  const farHeightAt=(x,z)=>.19+smooth(0,20,x-farBankAt(z))*(1.2+valueNoise3(x*.027,0,z*.027,41)*1.4);
+  const farPositions=[],farUV=[],farIndices=[],farWidth=22,farLength=128;
+  for(let j=0;j<=farLength;j++){
+    const z=-310+j/farLength*620,edge=farBankAt(z);
+    for(let i=0;i<=farWidth;i++){
+      const u=i/farWidth,x=edge+u*140;
+      const h=farHeightAt(x,z);
+      farPositions.push(x,h,z);farUV.push(x/12,z/12);
+      if(i<farWidth&&j<farLength){const a=j*(farWidth+1)+i,b=a+farWidth+1;farIndices.push(a,b,a+1,b,b+1,a+1);}
+    }
   }
-  addRock(51,-12,3.8,4.5,stoneMaterial,false,false,false);
+  const farGeometry=new THREE.BufferGeometry();farGeometry.setAttribute('position',new THREE.Float32BufferAttribute(farPositions,3));farGeometry.setAttribute('uv',new THREE.Float32BufferAttribute(farUV,2));farGeometry.setIndex(farIndices);farGeometry.computeVertexNormals();
+  const farShore=new THREE.Mesh(farGeometry,snowMaterial);farShore.name='對岸連續雪岸';scene.add(farShore);
+  // Small ink trees stand on the opposite land, interrupting a blank white band.
+  // These inaccessible distant accents use the original brush-painted asset.
+  for(const [z,inland,h] of [[-112,11,7],[-72,9,5.5],[-59,16,6.2],[-3,10,6],[12,15,5],[69,12,6.8],[82,17,5.6]]){
+    const x=farBankAt(z)+inland;
+    const material=new THREE.MeshBasicMaterial({transparent:true,opacity:.63,alphaTest:.025,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,fog:true});
+    const tree=new THREE.Mesh(new THREE.PlaneGeometry(h*1.5,h),material);
+    tree.position.set(x,farHeightAt(x,z)+h*.48,z);tree.rotation.y=-Math.PI/2;
+    tree.name='對岸淡墨疏松';scene.add(tree);farPineMaterials.push(material);
+  }
+
   // Broken faces beside the initial path interrupt the otherwise blank slope.
   for(const [x,z,r,h,yaw] of [[-29.5,2,2.4,2.2,.25],[-24,-2,2.2,1.5,-.18],[-20,-12,2.1,2,.35],[-15,-25,3.2,2.8,-.28],[-25,4,1.2,1.1,.35],[-22,-1,.95,.7,-.22],[-19,-8,1.2,1.2,.17],[-13,-20,1.5,1.2,-.3]]){
     const rock=addRock(x,z,r,h,cliffMaterial,true,false,true);rock.rotation.y=yaw;
@@ -370,7 +362,25 @@ export function createWorld() {
     const tree=buildBrushPine(palette,{size,seed:Math.floor(rand()*100000)});
     tree.position.set(x,heightAt(x,z)+(onRock?1.5:0),z);
     tree.rotation.y=(x===-23.7&&z===-5)?-.60:rand()*TAU;
-    scene.add(tree);addContactWash(x,z,1.05*size,randomSeed*.001,.10,1.18);
+    // Low roots follow this slope, so their tips remain buried in the snow.
+    const rootPoint=new THREE.Vector3();
+    const rootRotation=new THREE.Matrix4().makeRotationY(tree.rotation.y);
+    tree.children.forEach(part=>{
+      if(part.isInstancedMesh||!part.geometry?.attributes.position)return;
+      const vertices=part.geometry.attributes.position;
+      let changed=false;
+      for(let i=0;i<vertices.count;i++){
+        const ly=vertices.getY(i),lx=vertices.getX(i),lz=vertices.getZ(i);
+        if(ly>.46||Math.hypot(lx,lz)>.99*1.8)continue;
+        const weight=smooth(.10,.52,Math.hypot(lx,lz))*(1-smooth(.18,.46,ly));
+        if(weight<=0)continue;
+        rootPoint.set(lx*size,ly*size,lz*size).applyMatrix4(rootRotation).add(tree.position);
+        const offset=(heightAt(rootPoint.x,rootPoint.z)-tree.position.y)/size;
+        vertices.setY(i,ly+offset*weight);changed=true;
+      }
+      if(changed){vertices.needsUpdate=true;part.geometry.computeVertexNormals();part.geometry.computeBoundingSphere();}
+    });
+    scene.add(tree);addContactWash(x,z,1.05*size,randomSeed*.001,.17,1.30);
     tree.userData.baseRotation=tree.rotation.z;tree.userData.swayPhase=rand()*TAU;tree.userData.shake=0;
     pines.push(tree);collisions.push({x,z,r:.48*size});
     if(interactive)interactables.push({id:`pine-${interactables.length}`,type:'pine',position:tree.position.clone().add(new THREE.Vector3(0,1.3*size,0)),radius:3.7,label:'輕觸松枝',object:tree});
@@ -389,6 +399,17 @@ export function createWorld() {
   addPine(-15,-39,.67);
   addPine(-4,31,.83);
   addPine(-61,-63,1.2);
+  // Sparse new pines frame alternate routes; their trunks stay off the paths.
+  const extraPineCandidates=[[-30,52],[-17,43],[-37,31],[-54,52],[-61,13],[-44,-4],[-57,-7],[-66,-10],[-66,-53],[-48,-46],[-26,-52],[-18,-22],[-5,52]];
+  for(let i=0;i<extraPineCandidates.length;i++){
+    const [px,pz]=extraPineCandidates[i];
+    for(const [dx,dz] of [[0,0],[3,0],[-3,0],[0,3],[0,-3]]){
+      const x=px+dx,z=pz+dz,size=.74+(i%4)*.11;
+      const clearPath=pathSamples.every(p=>(x-p.x)**2+(z-p.z)**2>(p.width*.5+1.20)**2);
+      const clearRock=collisions.every(c=>(x-c.x)**2+(z-c.z)**2>(c.r+.85)**2);
+      if(clearPath&&clearRock&&canWalk(x,z)){addPine(x,z,size,i%5===0);break;}
+    }
+  }
   const boat=buildFishingBoat(palette);
   boat.position.set(17,.10,-30);boat.rotation.y=-.24;boat.name='孤舟';scene.add(boat);
   boat.userData.initialY=boat.position.y;
@@ -439,13 +460,21 @@ export function createWorld() {
     });
     waterAnimations.forEach((ring,i)=>{ring.material.opacity=.12+Math.sin(time*.35+i)*.035;});
   }
+  // A zero default also keeps non-rock shader inputs explicit and predictable.
+  scene.traverse(object=>{
+    const geometry=object.geometry;
+    if(geometry?.attributes.position&&!geometry.attributes.snowHeight)geometry.setAttribute('snowHeight',new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count),1));
+  });
   const loader=new THREE.TextureLoader();
   const ready=Promise.all([
     palette.ready,
     loader.loadAsync(new URL('./assets/ink-mountains.png',import.meta.url).href),
-  ]).then(([,mountainTexture])=>{
+    loader.loadAsync(new URL('./assets/ink-pine.png',import.meta.url).href),
+  ]).then(([,mountainTexture,pineTexture])=>{
     mountainTexture.colorSpace=THREE.SRGBColorSpace;mountainTexture.anisotropy=4;
     mountainPaintMaterials.forEach(material=>{material.map=mountainTexture;material.needsUpdate=true;});
+    pineTexture.colorSpace=THREE.SRGBColorSpace;pineTexture.anisotropy=4;
+    farPineMaterials.forEach(material=>{material.map=pineTexture;material.needsUpdate=true;});
   });
   const landmarks={summit:{x:-46,z:-12},shore:{x:-4,z:-24},forest:{x:-48,z:37}};
   return {scene,ready,spawn:{x:-25,z:9,yaw:-0.60,pitch:0.01},heightAt,canWalk,zoneAt,interactables,boat,update,landmarks};

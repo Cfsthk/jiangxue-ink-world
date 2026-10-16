@@ -4,10 +4,12 @@ import * as THREE from './vendor/three.module.js';
 // covers crags without stretched UV seams; timber, bark and straw use their UVs.
 const kinds = { rock: 0, snow: 1, bark: 2, foliage: 3, wood: 4, straw: 5, cloth: 6 };
 const vertexShader = `
+  attribute float snowHeight;
   varying vec3 vWorld;
   varying vec3 vNormalWorld;
   varying vec3 vView;
   varying vec2 vBrushUv;
+  varying float vSnowHeight;
   void main(){
     vec3 p=position;
     vec3 n=normal;
@@ -18,9 +20,11 @@ const vertexShader = `
     #endif
     vec4 world=modelMatrix*vec4(p,1.);
     vWorld=world.xyz;
-    vNormalWorld=normalize(mat3(modelMatrix)*n);
+    vec3 modelScale2=vec3(dot(modelMatrix[0].xyz,modelMatrix[0].xyz),dot(modelMatrix[1].xyz,modelMatrix[1].xyz),dot(modelMatrix[2].xyz,modelMatrix[2].xyz));
+    vNormalWorld=normalize(mat3(modelMatrix)*(n/max(modelScale2,vec3(.00001))));
     vView=(viewMatrix*world).xyz;
     vBrushUv=uv;
+    vSnowHeight=snowHeight;
     gl_Position=projectionMatrix*vec4(vView,1.);
   }
 `;
@@ -40,13 +44,14 @@ const fragmentShader = `
   varying vec3 vNormalWorld;
   varying vec3 vView;
   varying vec2 vBrushUv;
+  varying float vSnowHeight;
   float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
   float noise(vec3 p){
     vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
     return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
   }
   vec3 paintedRock(vec3 p,vec3 n){
-    vec3 w=pow(abs(n),vec3(5.));w/=max(w.x+w.y+w.z,.00001);
+    vec3 w=pow(abs(n),vec3(2.6));w/=max(w.x+w.y+w.z,.00001);
     p.x+=sin(p.y*.31+p.z*.17)*.52;
     p.z+=sin(p.y*.23+p.x*.41)*.43;
     // Long vertical brush marks stay vertical on both cliff-facing projections.
@@ -58,6 +63,18 @@ const fragmentShader = `
     vec3 broadC=texture2D(uPigment,vec2(p.x*uRepeat.x*.47-p.y*.005,p.y*uRepeat.y*.53)+vec2(.23,.61)).rgb;
     return mix(a*w.x+b*w.y+c*w.z,broadA*w.x+broadB*w.y+broadC*w.z,.31);
   }
+  vec3 snowPigment(vec3 p,vec3 n){
+    float light=max(0.,dot(n,normalize(vec3(-.43,.83,.34))));
+    float drift=noise(p*vec3(.41,.19,.17));
+    float mottling=noise(p*.83)*.65+noise(p*2.7)*.35;
+    float fibres=noise(p*vec3(23.,7.,14.));
+    float brush=smoothstep(.30,.77,noise(p*vec3(.7,.28,2.1)));
+    float paperInk=dot(texture2D(uPigment,p.xz*.19+vec2(.17,.61)).rgb,vec3(.299,.587,.114));
+    float shade=(1.-light)*.104+(1.-drift)*.029+(mottling-.5)*.038+(1.-paperInk)*.067;
+    vec3 c=vec3(.938,.939,.928)-vec3(shade);
+    c-=vec3((fibres-.5)*.026+brush*.015);
+    return c;
+  }
   void main(){
     vec3 n=normalize(vNormalWorld);
     float diffuse=max(0.,dot(n,normalize(vec3(-.43,.83,.34))));
@@ -67,13 +84,14 @@ const fragmentShader = `
     if(uKind<.5){
       vec3 pigment=paintedRock(vWorld,n);
       color=mix(uColor,pigment,uStrength);
-      // A very dilute secondary wash anchors the paint to actual rock folds.
-      color*=1.-(1.-diffuse)*uShade*.13;
+      // Broad translucent washes describe folds, rather than small hard facets.
+      color*=1.-(1.-diffuse)*uShade*.17;
+      color=mix(color,vec3(.91,.918,.903),smoothstep(.52,.89,wash)*.12);
       float crease=smoothstep(.61,.85,noise(vec3(vWorld.x*1.9,vWorld.y*.09,vWorld.z*1.9)));
       color=mix(color,uShadow,crease*.065);
     } else if(uKind<1.5){
-      // Snow is reserved paper, with just enough brushed grain to describe form.
-      color=uColor-vec3((1.-diffuse)*.028+(grain-.5)*.014+(wash-.5)*.010);
+      // Layered dilute pigment gives snow a wind-brushed surface and soft shade.
+      color=snowPigment(vWorld,n);
     } else if(uKind<2.5){
       vec2 uv=vBrushUv*uRepeat;
       uv.x+=sin(uv.y*5.7+vWorld.y*.21)*.043+sin(uv.y*13.3+vWorld.z*.7)*.014;
@@ -95,14 +113,22 @@ const fragmentShader = `
       color*=uKind<4.5?.80:.76;
     }
     if(uKind<.5 && uSnow>.001){
-      float cap=smoothstep(.48,.84,n.y+(wash-.5)*.17)*uSnow;
-      color=mix(color,vec3(.944,.944,.934),cap);
+      // Snow follows the same curved rock surface: no separate polygonal cap.
+      float edgeWash=noise(vWorld*vec3(1.3,.42,1.1))*.65+noise(vWorld*3.9)*.35;
+      float snowLine=.56+(wash-.5)*.18+(edgeWash-.5)*.085;
+      float heightCover=smoothstep(snowLine-.075,snowLine+.14,vSnowHeight);
+      float ledge=smoothstep(-.08,.66,n.y+(edgeWash-.5)*.16);
+      float cap=clamp(heightCover*ledge*uSnow*1.26,0.,1.);
+      color=mix(color,snowPigment(vWorld,n),cap);
+      // A dilute grey seam makes the melting, broken snow edge readable.
+      float seam=exp(-pow((vSnowHeight-snowLine)/.065,2.))*ledge;
+      color=mix(color,vec3(.69,.72,.715),seam*.055);
     }
     // Uneven dry-brush contour is attached to the surface, not a uniform toon line.
     vec3 eye=normalize(cameraPosition-vWorld);
     float edge=1.-smoothstep(.025,.16,abs(dot(n,eye)));
     float broken=smoothstep(.36,.70,noise(vWorld*9.7));
-    float edgeStrength=uKind> .5 && uKind<1.5 ? .025 : .17;
+    float edgeStrength=uKind> .5 && uKind<1.5 ? .035 : .13;
     color=mix(color,uShadow,edge*broken*edgeStrength);
     float distance=length(vView);
     if(uKind<.5){
@@ -125,7 +151,7 @@ export function createBrushMaterials(){
   white.colorSpace=THREE.SRGBColorSpace;white.needsUpdate=true;
   const textures={};
   const materials=[];
-  const textureFor={ rock:'rock',bark:'bark',wood:'wood',straw:'straw',cloth:'straw' };
+  const textureFor={ rock:'rock',snow:'rock',bark:'bark',wood:'wood',straw:'straw',cloth:'straw' };
   const textureFiles={rock:'brush-rock-v2.png',bark:'brush-bark-v2.png',wood:'brush-wood.png',straw:'brush-straw.png'};
   for(const name of ['rock','bark','wood','straw']){
     pending.push(loader.loadAsync(new URL(`./assets/${textureFiles[name]}`,import.meta.url).href).then(texture=>{
@@ -156,12 +182,20 @@ export function createBrushMaterials(){
       },
       side:THREE.DoubleSide,transparent:opacity<1,depthWrite:opacity>=1,toneMapped:false,
     });
+    material.defaultAttributeValues.snowHeight=[0];
     material.userData.brushKind=type;
     materials.push(material);
     return material;
   }
   const palette={
     inkMaterial,
+    withSnow(material,amount=.85){
+      const painted=material.clone();
+      painted.uniforms.uSnow.value=amount;
+      painted.defaultAttributeValues.snowHeight=[0];
+      materials.push(painted);
+      return painted;
+    },
     snowMaterial:inkMaterial('#fafaf7',.2,0,1,.002,0,'snow'),
     stoneMaterial:inkMaterial('#e4e4e0',.55,0,1,.0023,0,'rock'),
     cliffMaterial:inkMaterial('#e6e6e2',.6,0,1,.0025,0,'rock'),
