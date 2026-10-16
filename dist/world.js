@@ -1,7 +1,8 @@
 import * as THREE from './vendor/three.module.js';
-import { createBrushMaterials } from './ink-materials.js?v=0.3.0';
-import { buildFishingBoat, buildBrushPine } from './props.js?v=0.3.0';
-import { createRiverMaterial } from './river.js?v=0.3.0';
+import { createBrushMaterials } from './ink-materials.js?v=0.4.0';
+import { buildFishingBoat, buildBrushPine } from './props.js?v=0.4.0';
+import { createRiverMaterial } from './river.js?v=0.4.0';
+import { createMountainSurround } from './mountains.js?v=0.4.0';
 
 // Walkable terrain, weathered stone, pines and the boat are real 3D.
 // Chinese brush pigments wrap their surfaces; distant paintings complete the view.
@@ -27,9 +28,13 @@ export function createWorld() {
   const collisions = [];
   const pines = [];
   const waterAnimations = [];
-  const mountainPaintMaterials = [];
+  const mountainSurround=createMountainSurround();scene.add(mountainSurround.group);
+  const pineClearances=[];
   const farPineMaterials = [];
   const pathSamples = [];
+  const beachPathSamples = [];
+  const pathFootprints = [];
+  let maxPathSampleSpacing=0;
   const rockSnowMaterials = new Map();
   const palette = createBrushMaterials();
   const { inkMaterial, snowMaterial, stoneMaterial, cliffMaterial, branchMaterial, foliageMaterial, distantMaterials } = palette;
@@ -142,12 +147,25 @@ export function createWorld() {
     for(let i=0;i<=count;i++){
       const t=i/count,p=curve.getPoint(t),n=curve.getTangent(t);
       const wav=1+Math.sin(i*.67)*.10+Math.sin(i*.23)*.07;
-      if(i%3===0)pathSamples.push({x:p.x,z:p.z,width});
+      beachPathSamples.push({x:p.x,z:p.z,width});
       for(const s of [-1,1]){
         const x=p.x+n.z*width*.5*s*wav,z=p.z-n.x*width*.5*s*wav;
         pathPos.push(x,heightAt(x,z)+.025,z);pathUV.push(s<0?0:1,t*40);
       }
       if(i<count){const a=i*2;pathIndices.push(a,a+2,a+1,a+1,a+2,a+3);}
+    }
+    // Dense samples follow the rendered strip itself, not the control anchors.
+    for(let i=0;i<count;i++){
+      const a=i*6,b=a+6;
+      const points=[{x:pathPos[a],z:pathPos[a+2]},{x:pathPos[a+3],z:pathPos[a+5]},{x:pathPos[b+3],z:pathPos[b+5]},{x:pathPos[b],z:pathPos[b+2]}];
+      const edges=points.map((p,j)=>{const q=points[(j+1)%4],dx=q.x-p.x,dz=q.z-p.z;return {x:p.x,z:p.z,dx,dz,length2:Math.max(.0000001,dx*dx+dz*dz)};});
+      pathFootprints.push({points,edges,minX:Math.min(...points.map(p=>p.x)),maxX:Math.max(...points.map(p=>p.x)),minZ:Math.min(...points.map(p=>p.z)),maxZ:Math.max(...points.map(p=>p.z))});
+      const ca={x:(pathPos[a]+pathPos[a+3])*.5,y:(pathPos[a+1]+pathPos[a+4])*.5,z:(pathPos[a+2]+pathPos[a+5])*.5};
+      const cb={x:(pathPos[b]+pathPos[b+3])*.5,y:(pathPos[b+1]+pathPos[b+4])*.5,z:(pathPos[b+2]+pathPos[b+5])*.5};
+      const distance=Math.hypot(cb.x-ca.x,cb.y-ca.y,cb.z-ca.z),steps=Math.max(1,Math.ceil(distance/.65));
+      maxPathSampleSpacing=Math.max(maxPathSampleSpacing,distance/steps);
+      for(let j=0;j<steps;j++){const t=j/steps;pathSamples.push({x:ca.x+(cb.x-ca.x)*t,y:ca.y+(cb.y-ca.y)*t,z:ca.z+(cb.z-ca.z)*t});}
+      if(i===count-1)pathSamples.push(cb);
     }
     const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pathPos,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(pathUV,2));geo.setIndex(pathIndices);geo.computeVertexNormals();
     const mat=new THREE.ShaderMaterial({
@@ -264,9 +282,9 @@ export function createWorld() {
     geometry.setAttribute('snowHeight',new THREE.BufferAttribute(snowHeight,1));
     geometry.userData.height=height;geometry.userData.seed=seed;geometry.computeBoundingSphere();return geometry;
   }
-  function makeRockGroup(radius,height,seed,spire,material){
+  function makeRockGroup(radius,height,seed,spire,material,specifiedSnow=null){
     const group=new THREE.Group(),geometry=rockGeometry(radius,height,seed,spire);
-    const snowAmount=height<.35?.67:.85,key=`${material.uuid}:${snowAmount}`;
+    const snowAmount=specifiedSnow??(height<.35?.67:.85),key=`${material.uuid}:${snowAmount}`;
     if(!rockSnowMaterials.has(key))rockSnowMaterials.set(key,palette.withSnow(material,snowAmount));
     group.add(new THREE.Mesh(geometry,rockSnowMaterials.get(key)));
     group.name=spire?'水墨斷崖':'層理雪岩';return group;
@@ -315,14 +333,27 @@ export function createWorld() {
   }
   const farGeometry=new THREE.BufferGeometry();farGeometry.setAttribute('position',new THREE.Float32BufferAttribute(farPositions,3));farGeometry.setAttribute('uv',new THREE.Float32BufferAttribute(farUV,2));farGeometry.setIndex(farIndices);farGeometry.computeVertexNormals();
   const farShore=new THREE.Mesh(farGeometry,snowMaterial);farShore.name='對岸連續雪岸';scene.add(farShore);
-  // Small ink trees stand on the opposite land, interrupting a blank white band.
-  // These inaccessible distant accents use the original brush-painted asset.
-  for(const [z,inland,h] of [[-112,11,7],[-72,9,5.5],[-59,16,6.2],[-3,10,6],[12,15,5],[69,12,6.8],[82,17,5.6]]){
-    const x=farBankAt(z)+inland;
-    const material=new THREE.MeshBasicMaterial({transparent:true,opacity:.63,alphaTest:.025,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,fog:true});
-    const tree=new THREE.Mesh(new THREE.PlaneGeometry(h*1.5,h),material);
-    tree.position.set(x,farHeightAt(x,z)+h*.48,z);tree.rotation.y=-Math.PI/2;
-    tree.name='對岸淡墨疏松';scene.add(tree);farPineMaterials.push(material);
+  function farPineMaterial(sprite=false,opacity=.80){
+    const material=sprite?new THREE.SpriteMaterial({transparent:true,opacity,alphaTest:.018,depthWrite:false,toneMapped:false,fog:true}):new THREE.MeshBasicMaterial({transparent:true,opacity,alphaTest:.018,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,fog:true});
+    if(!sprite){
+      material.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('#include <map_fragment>',`#include <map_fragment>
+        float ink=clamp(1.-dot(diffuseColor.rgb,vec3(.299,.587,.114)),0.,1.);
+        diffuseColor.rgb=max(vec3(0.),diffuseColor.rgb-vec3(ink*.19));`);};
+      material.customProgramCacheKey=()=> 'far-pine-pigment-v2';
+    }
+    farPineMaterials.push(material);return material;
+  }
+  // Twenty-six brush pines form loose, unequal groups on the opposite land.
+  let farSeed=83317;
+  const farRand=()=>{farSeed=(farSeed*1664525+1013904223)>>>0;return farSeed/4294967296;};
+  for(const [centre,count] of [[-160,2],[-118,4],[-74,3],[-32,4],[18,3],[65,4],[112,3],[160,3]]){
+    for(let i=0;i<count;i++){
+      const z=centre+(farRand()-.5)*24,inland=7+farRand()*19,h=6+farRand()*5,x=farBankAt(z)+inland;
+      const geometry=new THREE.PlaneGeometry(h*1.5,h);geometry.translate(h*1.5*.15,h*.43,0);
+      const tree=new THREE.Mesh(geometry,farPineMaterial(false,.76+farRand()*.09));
+      tree.position.set(x,farHeightAt(x,z),z);tree.rotation.y=-Math.PI/2+(farRand()-.5)*.25;
+      tree.name='對岸淡墨疏松';scene.add(tree);
+    }
   }
 
   // Broken faces beside the initial path interrupt the otherwise blank slope.
@@ -338,30 +369,102 @@ export function createWorld() {
   }
   for(const z of [-83,83])for(let i=0;i<5;i++)addRock(-70+i*13,z+rand()*6,8+rand()*4,13+rand()*16,cliffMaterial,true,true);
 
-  // These distant ink paintings occupy real places beyond the walkable bank.
-  // Their transparent margins and mist keep the sky and the valley open.
-  function addPaintedRange(x,z,width,y,rotation,opacity,mirror=false){
-    const material=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity,
-      alphaTest:.008,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,fog:true});
-    // Deepen only painted pigment; the pale gaps must remain empty mist.
-    material.onBeforeCompile=shader=>{
-      shader.fragmentShader=shader.fragmentShader.replace('#include <map_fragment>',`#include <map_fragment>
-        float inkDensity=clamp(1.-dot(diffuseColor.rgb,vec3(.299,.587,.114)),0.,1.);
-        diffuseColor.rgb=max(vec3(0.),diffuseColor.rgb-vec3(inkDensity*.22));`);
-    };
-    material.customProgramCacheKey=()=> 'distant-brush-pigment-v1';
-    const panel=new THREE.Mesh(new THREE.PlaneGeometry(width,width*809/1942),material);
-    panel.position.set(x,y,z);panel.rotation.y=rotation;if(mirror)panel.scale.x=-1;
-    panel.name='淡墨遠山';panel.renderOrder=-2;scene.add(panel);mountainPaintMaterials.push(material);
+  function beachPathClearanceAt(x,z){
+    let clearance=Infinity;
+    for(const p of beachPathSamples)clearance=Math.min(clearance,Math.hypot(x-p.x,z-p.z)-p.width*.5);
+    return clearance;
   }
-  addPaintedRange(116,-89,220,28,-Math.PI/2,.91);
-  addPaintedRange(163,132,234,25,-Math.PI/2,.66,true);
-  addPaintedRange(25,-216,172,20,0,.72,true);
+  function pathClearanceAt(x,z){
+    // Exact distance to the union of the quads used for the visible road mesh.
+    // This includes its varying brush width and both straight edge segments.
+    const insideTriangle=(a,b,c)=>{
+      const cross=(p,q)=>(q.x-p.x)*(z-p.z)-(q.z-p.z)*(x-p.x);
+      const d1=cross(a,b),d2=cross(b,c),d3=cross(c,a);
+      return !((d1<0||d2<0||d3<0)&&(d1>0||d2>0||d3>0));
+    };
+    let minimum2=Infinity;
+    for(const quad of pathFootprints){
+      const bx=Math.max(quad.minX-x,0,x-quad.maxX),bz=Math.max(quad.minZ-z,0,z-quad.maxZ);
+      if(bx*bx+bz*bz>minimum2)continue;
+      if(bx===0&&bz===0){const p=quad.points;if(insideTriangle(p[0],p[1],p[2])||insideTriangle(p[0],p[2],p[3]))return -1;}
+      for(const edge of quad.edges){
+        const t=clamp(((x-edge.x)*edge.dx+(z-edge.z)*edge.dz)/edge.length2,0,1);
+        const dx=x-edge.x-edge.dx*t,dz=z-edge.z-edge.dz*t;
+        minimum2=Math.min(minimum2,dx*dx+dz*dz);
+      }
+    }
+    return Math.sqrt(minimum2);
+  }
+  // Low grey outcrops and a broken gravel wash remain on their own shore.
+  const beachMaterial=inkMaterial('#9ea29f',.52,0,1,.0023,0,'rock');
+  const farBeachMaterial=inkMaterial('#abb0ab',.45,0,1,.0032,0,'rock');
+  for(const material of [beachMaterial,farBeachMaterial]){
+    material.uniforms.uStrength.value=.36;material.uniforms.uRepeat.value.set(.21,.15);
+  }
+  function addGravelBand(far=false){
+    const positions=[],uv=[],indices=[],rows=far?230:150,cols=8,z0=far?-205:-72,z1=far?205:69;
+    for(let j=0;j<=rows;j++){
+      const z=z0+j/rows*(z1-z0),edge=far?farBankAt(z):bank(z),width=far?14:8.5;
+      for(let i=0;i<=cols;i++){
+        const u=i/cols,offset=1.2+u*width+(valueNoise3(z*.13,u*2.2,0,117)-.5)*.65;
+        const x=edge+(far?offset:-offset),h=far?farHeightAt(x,z):heightAt(x,z);
+        positions.push(x,h+.024,z);uv.push(u,j/rows);
+        if(i<cols&&j<rows){const a=j*(cols+1)+i,b=a+cols+1;indices.push(a,b,a+1,b,b+1,a+1);}
+      }
+    }
+    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));geometry.setIndex(indices);geometry.computeVertexNormals();
+    const material=new THREE.ShaderMaterial({transparent:true,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,
+      vertexShader:`varying vec2 vUv;varying vec3 vWorld;varying float vDepth;void main(){vUv=uv;vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vec4 v=viewMatrix*w;vDepth=length(v.xyz);gl_Position=projectionMatrix*v;}`,
+      fragmentShader:`varying vec2 vUv;varying vec3 vWorld;varying float vDepth;float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}void main(){float edge=smoothstep(0.,.18,vUv.x)*smoothstep(0.,.25,1.-vUv.x);float ink=noise(vWorld.xz*.31);float grains=smoothstep(.42,.78,noise(vWorld.xz*5.8));float gap=smoothstep(.62,.83,noise(vWorld.xz*1.4));float alpha=edge*(.19+ink*.22+grains*.10)*(1.-gap*.78)*exp(-vDepth*vDepth*.000007);gl_FragColor=vec4(.34,.345,.34,alpha);
+        #include <colorspace_fragment>
+      }`,});
+    const band=new THREE.Mesh(geometry,material);band.name=far?'對岸灰墨砂礫帶':'近岸灰墨砂礫帶';scene.add(band);
+  }
+  addGravelBand(false);addGravelBand(true);
+  let beachSeed=416183;
+  const beachRand=()=>{beachSeed=(beachSeed*1664525+1013904223)>>>0;return beachSeed/4294967296;};
+  function addBeachCluster(centre,far=false,count=3){
+    for(let i=0;i<count;i++){
+      const z=centre+(beachRand()-.5)*9,r=1.05+beachRand()*1.15,h=.43+beachRand()*.80;
+      const stretch=1.0+beachRand()*.25,angle=beachRand()*TAU,seed=beachRand()*70,inland=beachRand()*3;
+      let x=(far?farBankAt(z):bank(z))+(far?1:-1)*(r*1.9+1+inland),found=far;
+      if(!far){for(let attempt=0;attempt<6;attempt++){
+        if(beachPathClearanceAt(x,z)>r*1.28+1.05 && collisions.every(c=>Math.hypot(x-c.x,z-c.z)>r+c.r+.5)){found=true;break;}x-=1.3;
+      }}
+      if(!found)continue;
+      const snow=far?.30:[.28,.37,.46][i%3],rock=makeRockGroup(r,h,seed,false,far?farBeachMaterial:beachMaterial,snow);
+      rock.scale.set(stretch,1,.72+beachRand()*.25);rock.rotation.y=angle;
+      rock.position.set(x,(far?farHeightAt(x,z):heightAt(x,z))-h*.23,z);
+      rock.name=far?'對岸灰雪岩簇':'近岸灰雪岩簇';rock.userData.beachSide=far?'far':'near';scene.add(rock);
+      if(!far){collisions.push({x,z,r:r*1.18});addContactWash(x,z,r,seed,.18,1.15);}
+    }
+  }
+  for(const [z,count] of [[-59,3],[-43,4],[-31,3],[-10,3],[10,3],[28,4],[47,3],[62,3]])addBeachCluster(z,false,count);
+  for(const [z,count] of [[-131,3],[-89,4],[-53,3],[-17,4],[24,3],[63,4],[111,3],[151,3]])addBeachCluster(z,true,count);
 
+  function findPineSite(x,z,size){
+    const safe=(px,pz)=>{
+      if(px<-69||pz<-69||pz>65||px>bank(pz)-3||!canWalk(px,pz))return false;
+      if(Math.hypot(px+25,pz-9)<5+size*.4)return false;
+      if(collisions.some(c=>Math.hypot(px-c.x,pz-c.z)<c.r+.90+size*.25))return false;
+      return pathClearanceAt(px,pz)>=2.6;
+    };
+    if(safe(x,z))return {x,z};
+    for(let radius=.7;radius<=22;radius+=.7){
+      const count=Math.max(14,Math.ceil(radius*7));
+      for(let i=0;i<count;i++){
+        const angle=i/count*TAU+.27,px=x+Math.cos(angle)*radius,pz=z+Math.sin(angle)*radius;
+        if(safe(px,pz))return {x:px,z:pz};
+      }
+    }
+    return null;
+  }
   function addPine(x,z,size=1,interactive=false,onRock=false){
+    const requested={x,z},mainPine=x===-23.7&&z===-5,site=findPineSite(x,z,size);if(!site)return null;
+    x=site.x;z=site.z;
     const tree=buildBrushPine(palette,{size,seed:Math.floor(rand()*100000)});
     tree.position.set(x,heightAt(x,z)+(onRock?1.5:0),z);
-    tree.rotation.y=(x===-23.7&&z===-5)?-.60:rand()*TAU;
+    tree.rotation.y=mainPine?-.60:rand()*TAU;
     // Low roots follow this slope, so their tips remain buried in the snow.
     const rootPoint=new THREE.Vector3();
     const rootRotation=new THREE.Matrix4().makeRotationY(tree.rotation.y);
@@ -380,6 +483,13 @@ export function createWorld() {
       }
       if(changed){vertices.needsUpdate=true;part.geometry.computeVertexNormals();part.geometry.computeBoundingSphere();}
     });
+    // Nearby trunks retain full 3D detail; distant trees use one brush sprite.
+    const detail=new THREE.Group();[...tree.children].forEach(part=>detail.add(part));
+    const lod=new THREE.LOD(),painted=new THREE.Sprite(farPineMaterial(true,.85));
+    painted.center.set(.35,.07);painted.scale.set(9.9,6.6,1);
+    lod.addLevel(detail,0);lod.addLevel(painted,72);tree.add(lod);tree.userData.paintedSprite=painted;
+    const clearance=pathClearanceAt(x,z),id=`pine-${String(pines.length+1).padStart(2,'0')}`;
+    tree.userData.planting={id,requested,x,z,pathClearance:clearance};pineClearances.push({id,requested:{...requested},x,z,clearance});
     scene.add(tree);addContactWash(x,z,1.05*size,randomSeed*.001,.17,1.30);
     tree.userData.baseRotation=tree.rotation.z;tree.userData.swayPhase=rand()*TAU;tree.userData.shake=0;
     pines.push(tree);collisions.push({x,z,r:.48*size});
@@ -399,17 +509,10 @@ export function createWorld() {
   addPine(-15,-39,.67);
   addPine(-4,31,.83);
   addPine(-61,-63,1.2);
-  // Sparse new pines frame alternate routes; their trunks stay off the paths.
   const extraPineCandidates=[[-30,52],[-17,43],[-37,31],[-54,52],[-61,13],[-44,-4],[-57,-7],[-66,-10],[-66,-53],[-48,-46],[-26,-52],[-18,-22],[-5,52]];
-  for(let i=0;i<extraPineCandidates.length;i++){
-    const [px,pz]=extraPineCandidates[i];
-    for(const [dx,dz] of [[0,0],[3,0],[-3,0],[0,3],[0,-3]]){
-      const x=px+dx,z=pz+dz,size=.74+(i%4)*.11;
-      const clearPath=pathSamples.every(p=>(x-p.x)**2+(z-p.z)**2>(p.width*.5+1.20)**2);
-      const clearRock=collisions.every(c=>(x-c.x)**2+(z-c.z)**2>(c.r+.85)**2);
-      if(clearPath&&clearRock&&canWalk(x,z)){addPine(x,z,size,i%5===0);break;}
-    }
-  }
+  extraPineCandidates.forEach(([x,z],i)=>addPine(x,z,.74+(i%4)*.11,i%5===0));
+  // Additional near-land pines stay sparse and alternate in height.
+  [[-34,65],[-17,56],[-8,24],[-21,17],[-43,7],[-57,3],[-64,53],[-65,-43],[-54,-55],[-34,-60],[-21,-34],[-7,-47]].forEach(([x,z],i)=>addPine(x,z,.70+(i%5)*.105,i%6===0));
   const boat=buildFishingBoat(palette);
   boat.position.set(17,.10,-30);boat.rotation.y=-.24;boat.name='孤舟';scene.add(boat);
   boat.userData.initialY=boat.position.y;
@@ -467,15 +570,12 @@ export function createWorld() {
   });
   const loader=new THREE.TextureLoader();
   const ready=Promise.all([
-    palette.ready,
-    loader.loadAsync(new URL('./assets/ink-mountains.png',import.meta.url).href),
+    palette.ready,mountainSurround.ready,
     loader.loadAsync(new URL('./assets/ink-pine.png',import.meta.url).href),
-  ]).then(([,mountainTexture,pineTexture])=>{
-    mountainTexture.colorSpace=THREE.SRGBColorSpace;mountainTexture.anisotropy=4;
-    mountainPaintMaterials.forEach(material=>{material.map=mountainTexture;material.needsUpdate=true;});
+  ]).then(([, ,pineTexture])=>{
     pineTexture.colorSpace=THREE.SRGBColorSpace;pineTexture.anisotropy=4;
     farPineMaterials.forEach(material=>{material.map=pineTexture;material.needsUpdate=true;});
   });
   const landmarks={summit:{x:-46,z:-12},shore:{x:-4,z:-24},forest:{x:-48,z:37}};
-  return {scene,ready,spawn:{x:-25,z:9,yaw:-0.60,pitch:0.01},heightAt,canWalk,zoneAt,interactables,boat,update,landmarks};
+  return {scene,ready,spawn:{x:-25,z:9,yaw:-0.60,pitch:0.01},heightAt,canWalk,zoneAt,interactables,boat,update,landmarks,pineClearances,pathSampling:{count:pathSamples.length,maxSpacing:maxPathSampleSpacing,mode:'rendered-road-footprint'}};
 }

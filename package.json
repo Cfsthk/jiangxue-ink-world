@@ -1,10 +1,10 @@
 {
   "name": "jiangxue-ink-world",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "python3 -m http.server 4187 --bind 127.0.0.1 --directory dist",
-    "check": "node --check dist/main.js && node --check dist/world.js && node --check dist/audio.js && node --check dist/wash.js && node --check dist/ink-materials.js && node --check dist/props.js && node --check dist/river.js"
+    "check": "node --check dist/main.js && node --check dist/world.js && node --check dist/audio.js && node --check dist/wash.js && node --check dist/ink-materials.js && node --check dist/props.js && node --check dist/river.js && node --check dist/mountains.js"
   }
 }

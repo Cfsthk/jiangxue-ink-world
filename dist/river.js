@@ -10,10 +10,10 @@ export function createRiverMaterial() {
     uniforms: {
       uTime: { value: 0 },
       // THREE.Color converts these sRGB art colours to shader linear space.
-      uWater: { value: new THREE.Color('#dce6e7') },
-      uWash: { value: new THREE.Color('#d0dfe1') },
-      uInk: { value: new THREE.Color('#a9c0c4') },
-      uPaper: { value: new THREE.Color('#edf0ed') },
+      uWater: { value: new THREE.Color('#c9dce0') },
+      uWash: { value: new THREE.Color('#d1d4d1') },
+      uInk: { value: new THREE.Color('#94acb0') },
+      uPaper: { value: new THREE.Color('#fcfcf8') },
       uShoreMist: { value: new THREE.Color('#f4f4ef') },
     },
     vertexShader: /* glsl */`
@@ -57,47 +57,77 @@ export function createRiverMaterial() {
       void main() {
         float t = uTime;
         vec2 p = vRiverWorld.xz;
-        // Water travels only a few centimetres per second. The two unequal
-        // speeds, curved phases and broken masks prevent a fixed stripe grid.
-        vec2 flow = p + vec2(-t * 0.045, t * 0.028);
-        flow.x += sin(p.y * 0.027 + t * 0.031) * 0.9;
-        float broad = softNoise(flow * vec2(0.028, 0.045));
-        float wash = softNoise(flow * vec2(0.067, 0.103) + 17.0);
-        vec3 color = mix(uWater, uWash, 0.045 + broad * 0.27 + wash * 0.055);
+        // The current runs down the river at 0.21 m/s. A short observation
+        // reveals the moving broken strokes, without rapid shimmer or waves.
+        vec2 flow = p - vec2(t * 0.046, t * 0.205);
+        flow.x += sin(p.y * 0.028 + t * 0.12) * 0.34;
 
-        float phaseA = flow.x * 0.68
-                     + sin(flow.y * 0.072 + t * 0.026) * 1.30
-                     + sin(flow.y * 0.137 - flow.x * 0.018 + t * 0.071) * 0.32
-                     + (broad - 0.5) * 0.55;
-        float phaseB = flow.x * 1.07
-                     + sin(flow.y * 0.093 - t * 0.021) * 0.81
-                     + sin(flow.y * 0.191 + flow.x * 0.037) * 0.21
-                     + wash * 0.75 - t * 0.019;
+        // Three substantial paint regions: blue wash, neutral grey wash and
+        // genuinely blank paper. Anisotropic domain warping stretches their
+        // irregular shapes along the river instead of making blue-on-blue noise.
+        vec2 regionUV = flow * vec2(0.112, 0.030);
+        regionUV.x += sin(regionUV.y * 1.71 + t * 0.065) * 0.34;
+        regionUV.y += sin(regionUV.x * 1.33) * 0.13;
+        float broad = softNoise(regionUV + vec2(3.7, 8.1));
+        float wash = softNoise(regionUV * vec2(1.83, 1.37) + vec2(21.0, 7.0));
+        // Two finer scales disturb the wet edges, rather than tracing hard
+        // contour bands around each broad wash. Their world-space grain moves
+        // with the current, so the ragged fringes do not stick to the screen.
+        float bleed = softNoise(flow * vec2(0.61, 0.22) + vec2(19.0, 43.0));
+        float edgeFibre = softNoise(flow * vec2(1.9, 0.71) + vec2(51.0, 6.0));
+        float region = broad * 0.78 + wash * 0.22
+                     + (bleed - 0.5) * 0.085 + (edgeFibre - 0.5) * 0.029;
+        // Wet-on-wet transitions are about three times wider than the former
+        // colour boundaries, with large pure-colour reserves inside the washes.
+        float blueRegion = 1.0 - smoothstep(0.325, 0.515, region);
+        float paperRegion = smoothstep(0.438, 0.632, region);
+        float paperBites = smoothstep(0.62, 0.82, bleed)
+                         * smoothstep(0.43, 0.54, region) * 0.32;
+        paperRegion = min(1.0 - blueRegion, paperRegion + (1.0 - paperRegion) * paperBites);
+        float greyRegion = max(0.0, 1.0 - blueRegion - paperRegion);
+        vec3 color = uWater * blueRegion + uWash * greyRegion + uPaper * paperRegion;
 
-        // Long gaps and short dry-brush flecks; most of the river stays blank.
-        float islands = softNoise(flow * vec2(0.24, 0.10) + vec2(4.0, t * 0.003));
-        float fibres = softNoise(flow * vec2(1.8, 0.72));
-        float gapsA = smoothstep(0.28, 0.64, islands)
-                    * smoothstep(0.16, 0.52, fibres);
-        float gapsB = smoothstep(0.40, 0.74, softNoise(flow * vec2(0.36, 0.11) + 32.0))
-                    * smoothstep(0.14, 0.57, softNoise(flow * vec2(2.3, 0.94) + 9.0));
+        // A restrained ink bloom inside the washes adds depth while keeping
+        // the paper patches white; it is not a surface shine or reflection map.
+        float pigment = softNoise(flow * vec2(0.26, 0.074) + vec2(11.0, 36.0));
+        color = mix(color, uInk, (1.0 - paperRegion) * smoothstep(0.56, 0.86, pigment) * 0.065);
+        // A continuous thin stain and tiny dry-ink flecks stop each colour
+        // reserve looking like an untextured sheet of ice. High paper cores
+        // remain untouched, preserving actual white instead of tinting it grey.
+        float paperCore = smoothstep(0.64, 0.70, region);
+        float thinStain = softNoise(flow * vec2(2.7, 0.93) + vec2(7.0, 61.0));
+        float inkFlecks = smoothstep(0.57, 0.82, softNoise(flow * vec2(6.1, 2.2) + vec2(27.0, 17.0)));
+        float stain = (0.007 + thinStain * 0.022 + inkFlecks * 0.019) * (1.0 - paperCore);
+        color = mix(color, uInk, stain);
 
-        // Slow 11–18 second breathing gives a visible, soft rise and fall,
-        // even while the much slower current carries each stroke downstream.
-        float breathA = 0.69 + 0.31 * sin(t * 0.43 + broad * 5.0);
-        float breathB = 0.70 + 0.30 * sin(t * 0.56 + wash * 6.0);
-        float inkA = rippleStroke(phaseA, 0.067) * gapsA * breathA;
-        float inkB = rippleStroke(phaseB, 0.035) * gapsB * breathB;
-        float distanceFade = 1.0 - smoothstep(75.0, 310.0, vRiverDepth) * 0.60;
-        color = mix(color, uInk, clamp((inkA * 0.56 + inkB * 0.31) * distanceFade, 0.0, 0.58));
+        float phaseA = flow.x * 0.63
+                     + sin(flow.y * 0.145 + t * 0.13) * 0.90
+                     + sin(flow.y * 0.041 - flow.x * 0.022) * 0.61
+                     + (broad - 0.5) * 0.45;
+        float phaseB = flow.x * 0.91
+                     + sin(flow.y * 0.187 - t * 0.09) * 0.64
+                     + sin(flow.y * 0.067 + flow.x * 0.031) * 0.29
+                     + wash * 0.58;
 
-        // A pale, broad neighbour to occasional ink strokes is a painted
-        // reflection, rather than a glossy highlight or a sun reflection.
-        float lightStroke = rippleStroke(phaseA + 0.15, 0.072) * gapsA;
-        float palePatch = smoothstep(0.66, 0.90, softNoise(flow * vec2(0.039, 0.092) + 71.0));
-        float glimmer = (0.63 + 0.37 * sin(t * 0.35 + wash * 4.0));
-        color = mix(color, uPaper, (lightStroke * 0.18 + palePatch * 0.065) * glimmer * distanceFade);
-        color = mix(color, uPaper, smoothstep(130.0, 380.0, vRiverDepth) * 0.27);
+        // These roughly 0.12–0.23 m strokes are wide enough to survive the
+        // mountain-top view. The long broken masks prevent a regular grid.
+        float islands = softNoise(flow * vec2(0.28, 0.13) + vec2(4.0, 2.0));
+        float fibres = softNoise(flow * vec2(1.5, 0.91));
+        float gapsA = smoothstep(0.25, 0.58, islands)
+                    * (0.38 + 0.62 * smoothstep(0.18, 0.56, fibres));
+        float gapsB = smoothstep(0.39, 0.69, softNoise(flow * vec2(0.41, 0.16) + 32.0))
+                    * smoothstep(0.15, 0.60, softNoise(flow * vec2(1.9, 1.1) + 9.0));
+        float breathA = 0.82 + 0.18 * sin(t * 0.58 + broad * 5.0);
+        float breathB = 0.79 + 0.21 * sin(t * 0.71 + wash * 6.0);
+        float inkA = rippleStroke(phaseA, 0.071) * gapsA * breathA;
+        float inkB = rippleStroke(phaseB, 0.055) * gapsB * breathB;
+        float distanceFade = 1.0 - smoothstep(100.0, 360.0, vRiverDepth) * 0.18;
+        color = mix(color, uInk, clamp((inkA * 0.67 + inkB * 0.48) * distanceFade, 0.0, 0.73));
+
+        // A few pale companion strokes join the broad paper reserves. Their
+        // strength stays constant: no sparkling, pulsing specular highlights.
+        float whiteStroke = rippleStroke(phaseA + 0.19, 0.11) * gapsA;
+        color = mix(color, uPaper, whiteStroke * 0.44 * distanceFade);
 
         // Match the world's low opposite bank. Broken mist dissolves the
         // otherwise ruler-straight join between the water and snowy land.

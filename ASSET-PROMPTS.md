@@ -37,3 +37,22 @@ Use case: stylized-concept. Asset type: seamless square Chinese ink painting ALB
 ### brush-bark-v2.png
 
 Use case: stylized-concept. Asset type: seamless square Chinese ink ALBEDO texture to wrap a real 3D crooked pine trunk in a game. Image 1 is solely the exact art style reference. Match its foreground upper-left pine bark painting: irregular broad flaking grey bark scales, interrupted wet-brush patches, thin sparse black tapered twig-like fissures and small charcoal dabs, generous white dry-brush gaps. Broad broken hand-painted shapes, each irregular bark scale a little angular, not a dense fine-line texture. Some longer downward strokes but they must be interrupted by white and grey patches; no continuous parallel lines, no uniform vertical stripes, no wood-grain fibres, no photographic bark. Pale neutral grey palette, softly bleeding larger light-grey and medium-grey patches, a few dark expressive accents. Flat evenly lit material artwork, no actual tree or branch silhouette, no snow, no perspective, no scene, no text, no border. Tileable edges. Each direction must look like genuine calligraphic Chinese painting brushwork, visually matching the reference pine.
+
+## ink-rounded-ranges.png（0.4.0 環繞遠山）
+
+內建 imagegen；以 art-reference.png 為風格參照，透明素材。
+
+Use case: stylized-concept
+Asset type: transparent game-environment mountain panorama texture for a 360-degree ring of layered cylinders
+Input images: Image 1 is a style reference only; use its pale Chinese ink-wash brush language, broken contours, mist, and restrained values. Do not recreate the reference composition and do not include its river, boat, fisherman, or foreground path.
+Primary request: create one very wide horizontal transparent-alpha panorama of distant Chinese ink mountains for a semi-open 3D scene. Show about eight separate but visually connected mountain groups with varied heights and widths. The mountain silhouettes should be broad, rounded, naturally softened and irregular, with lower hills continuing between groups. Avoid a row of thin upright pillars, sharp triangular peaks, repeated identical silhouettes, or large empty gaps down to the base.
+Scene/backdrop: no visible backdrop; the entire canvas outside the mountain forms must be transparent. The mountain band should occupy the middle and lower portion, with a soft mist fade that becomes completely transparent toward the bottom and transparent outer side edges so the panorama can wrap around cylinders.
+Subject: layered distant mountain ranges only, with a few extremely fine pale stylized pine silhouettes sparsely placed on some ridges.
+Style/medium: hand-painted Chinese shui-mo ink wash, layered cun-brush strokes and soft ink diffusion, pale snow left as white negative space, broken calligraphic ridge contours, simplified game-asset silhouette; preserve the reference's very light gray Chinese painting touch. It must read as an illustrated texture/cutout, not a photograph and not a 3D render.
+Composition/framing: extra-wide 3:1-like panoramic strip; eight varied rounded mountain clusters distributed across the width; overlapping atmospheric layers; continuous low foothills between clusters; no central hero peak.
+Lighting/mood: cold, quiet, wintry, fog-softened, mostly low contrast with a few restrained darker ink accents on nearer ridges.
+Color palette: mostly black, white, and cool gray ink; only extremely subtle gray-blue or gray-green tint if needed; no saturated colors.
+Materials/textures: visible layered dry-brush and wet-ink washes, irregular broken edges, soft transparent atmospheric falloff; do not use uniform vector fills, smooth gradients alone, or regular repeating texture.
+Text (verbatim): none.
+Constraints: true transparent alpha background; transparent top, bottom, and outer side margins; bottom mist fade fully transparent; standalone mountain panorama only; keep every mountain group broad and rounded; preserve clear separation between near/middle/far ink layers.
+Avoid: sky, paper texture, parchment, solid white background, river, water, shoreline, rocks, canyon, boat, fisherman, characters, buildings, roads, text, logos, frame, border, flat opaque rectangle, photorealism, realistic landscape photography, 3D render, thin needle-like peaks, sharp repeated triangles, all peaks the same height, mountain silhouettes cut off at the edges.

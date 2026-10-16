@@ -1,7 +1,7 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=0.3.0';
-import { Soundscape } from './audio.js?v=0.3.0';
-import { InkWash } from './wash.js?v=0.3.0';
+import { createWorld } from './world.js?v=0.4.0';
+import { Soundscape } from './audio.js?v=0.4.0';
+import { InkWash } from './wash.js?v=0.4.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
@@ -274,7 +274,7 @@ function resize() {
 function init() {
   try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.65));
+    renderer.setPixelRatio(Math.min(devicePixelRatio, matchMedia('(pointer:coarse)').matches ? 1.3 : 1.65));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
     world = createWorld();

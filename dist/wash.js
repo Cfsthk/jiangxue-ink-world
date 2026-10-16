@@ -6,7 +6,7 @@ export class InkWash {
   constructor(renderer) {
     this.renderer = renderer;
     this.target = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: true, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
-    this.target.samples = Math.min(4, renderer.capabilities.maxSamples);
+    this.target.samples = Math.min(matchMedia('(pointer:coarse)').matches ? 2 : 4, renderer.capabilities.maxSamples);
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.material = new THREE.ShaderMaterial({
