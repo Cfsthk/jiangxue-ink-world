@@ -1,8 +1,8 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=0.8.0';
-import { Soundscape } from './audio.js?v=0.8.0';
-import { InkWash } from './wash.js?v=0.8.0';
-import { createGroundSnow } from './ground-snow.js?v=0.8.0';
+import { createWorld } from './world.js?v=0.9.0';
+import { Soundscape } from './audio.js?v=0.9.0';
+import { InkWash } from './wash.js?v=0.9.0';
+import { createGroundSnow } from './ground-snow.js?v=0.9.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
@@ -77,6 +77,7 @@ function restart() {
   $('ending').hidden=true;
   $('hud').classList.remove('journey-ended');
   Object.assign(player, world.spawn);
+  world.bird.reset(world.spawn);
   player.targetYaw = player.yaw;
   player.targetPitch = player.pitch;
   player.y = world.heightAt(player.x, player.z) + 1.65;
@@ -115,7 +116,7 @@ async function start() {
   setTimeout(() => {
     state.entering = false;
     syncJourneyHUD();
-    notify('行李散落山間。每次找回一件，帶回車後放好。',6500);
+    notify('跟着墨鳥，尋回第一件行李。拾起後，牠會帶你回馬車。',6500);
     canvas.focus({ preventScroll: true });
   }, reducedMotion ? 70 : 2800);
 }
@@ -131,15 +132,15 @@ const storyDrawings = {
 function storyArt(id){return `<svg viewBox="0 0 400 110" aria-hidden="true"><ellipse class="wash" cx="201" cy="68" rx="116" ry="37"/>${storyDrawings[id]}</svg>`;}
 function syncJourneyHUD(){
   if(!world)return;
-  const j=world.journey.getState(),item=world.journey.items.find(i=>i.id===j.carried);
+  const j=world.journey.getState(),item=world.journey.items.find(i=>i.id===j.carried),next=world.journey.items.find(i=>i.id===j.activeId);
   $('luggage-count').textContent=`${j.returned} / 6`;
-  $('journey-objective').textContent=item?`帶着${item.name}・回到馬車放好。`:j.returned===5?'最後一件：江岸蘆葦旁的送別信。':'尋回散落行李，每次帶回一件。';
-  const bearing=$('wagon-bearing');bearing.hidden=!item;
-  if(item){
-    const at=world.journey.depositPosition,dx=at.x-player.x,dz=at.z-player.z;
+  $('journey-objective').textContent=item?`跟隨墨鳥，把${item.name}帶回馬車。`:next?`跟隨墨鳥・${j.returned+1}：${next.name}`:'行李已全部放好。';
+  const bearing=$('wagon-bearing');bearing.hidden=!next;
+  if(next){
+    const at=item?world.journey.depositPosition:world.bird.getState(),dx=at.x-player.x,dz=at.z-player.z;
     const angle=Math.atan2(Math.sin(Math.atan2(-dx,-dz)-player.yaw),Math.cos(Math.atan2(-dx,-dz)-player.yaw));
     const arrow=Math.abs(angle)<.4?'↑':Math.abs(angle)>2.55?'↓':angle>0?'↖':'↗';
-    bearing.textContent=`馬車 ${arrow} ${Math.round(Math.hypot(dx,dz))} 米`;
+    bearing.textContent=`${item?'馬車':'墨鳥'} ${arrow} ${Math.round(Math.hypot(dx,dz))} 米`;
   }
   const progress=$('task-progress');progress.hidden=!j.working;
   if(j.working){const percent=Math.round(j.progress*100);progress.setAttribute('aria-valuenow',percent);progress.firstElementChild.style.width=percent+'%';}
@@ -152,7 +153,8 @@ function showStory(item){
 }
 function closeStory(){
   if(storyDialog.open)storyDialog.close();state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});
-  if(world.journey.getState().returned===5)notify('五件行李已放好。還有江岸蘆葦旁的一封送別信。',6500);
+  const next=world.journey.items.find(i=>i.id===world.journey.getState().activeId);
+  if(next)notify(`墨鳥正在等候。下一件：${next.name}。`,5000);
 }
 function openLuggage(){
   if(!world||!state.started||state.entering||state.ended)return;
@@ -160,7 +162,7 @@ function openLuggage(){
   const j=world.journey.getState();
   $('luggage-list').innerHTML=world.journey.items.map((item,index)=>{
     const entry=j.items[index],returned=entry.status==='returned';
-    const status=returned?'已歸還・重讀':entry.status==='carried'?'手中行李':!entry.unlocked?'最後尋回':entry.status==='ready'?'可以拾起':'待尋回';
+    const status=returned?'已歸還・重讀':entry.status==='carried'?'手中行李':!entry.unlocked?(item.id==='farewell'?'最後尋回':'稍後尋回'):entry.status==='ready'?'可以拾起':'墨鳥引路';
     const tag=returned?'button':'div',attr=returned?`type="button" data-story="${item.id}"`:'class="luggage-row"';
     return `<li><${tag} ${attr}><span class="item-number">${index+1}</span><span><strong>${item.name}</strong><small>${item.place}</small></span><span class="item-state">${status}</span></${tag}></li>`;
   }).join('');
@@ -271,6 +273,7 @@ function interact() {
   interactionTime=state.time;
   if(journeyTarget){
     const result=world.journey.act(target);if(!result)return;
+    if(result.picked)player.targetPitch=-.025;
     if(result.message)notify(result.message,4000);
     if(result.working)sound.rustle();
     if(result.journal)openLuggage();
@@ -462,6 +465,7 @@ function init() {
         state.time += dt;
         if (isPlaying()) move(dt);
         world.journey.update(dt,state.time,player);
+        world.bird.update(dt,state.time,player,isPlaying());
         const workingFocus=world.journey.focusPoint();
         if(workingFocus&&isPlaying()){
           const dx=workingFocus.x-player.x,dz=workingFocus.z-player.z,direction=Math.atan2(-dx,-dz);
@@ -488,7 +492,7 @@ function init() {
       console.error('水墨素材載入失敗', error);
       $('load-status').textContent = '水墨素材未能載入，請重新整理再試。';
     });
-    window.__JIANGXUE__ = Object.freeze({ getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.(),journey:world.journey.getState() }) });
+    window.__JIANGXUE__ = Object.freeze({ inspectGuideRoutes:()=>world.bird.inspectRoutes(), getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.(),journey:world.journey.getState(),bird:world.bird.getState() }) });
   } catch (error) {
     console.error('江雪世界載入失敗', error);
     $('start-label').textContent = '重新載入'; $('start').disabled = false;

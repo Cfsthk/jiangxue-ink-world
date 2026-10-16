@@ -1,13 +1,21 @@
 import * as THREE from './vendor/three.module.js';
-import { BrushBatch, tube, timberBox } from './props.js?v=0.8.0';
+import { BrushBatch, tube, timberBox } from './props.js?v=0.9.0';
+import { createRigPaint, addRigBleed } from './painted-rig.js?v=0.9.0';
 const TAU=Math.PI*2;
 
 function softBox(w,h,d,seed=1) {
   const shape=new THREE.Shape(),r=Math.min(.045,w*.14,h*.16,d*.16),x=-w/2,y=-h/2;
   shape.moveTo(x+r,y);shape.lineTo(x+w-r,y);shape.quadraticCurveTo(x+w,y,x+w,y+r);shape.lineTo(x+w,y+h-r);shape.quadraticCurveTo(x+w,y+h,x+w-r,y+h);shape.lineTo(x+r,y+h);shape.quadraticCurveTo(x,y+h,x,y+h-r);shape.lineTo(x,y+r);shape.quadraticCurveTo(x,y,x+r,y);
-  const g=new THREE.ExtrudeGeometry(shape,{depth:Math.max(.004,d-r*2),bevelEnabled:true,bevelSize:r*.7,bevelThickness:r,bevelSegments:3,steps:1,curveSegments:5});g.translate(0,0,-d/2+r);
-  const p=g.attributes.position;
-  for(let i=0;i<p.count;i++){const px=p.getX(i),py=p.getY(i),pz=p.getZ(i);p.setXYZ(i,px+Math.sin(pz*4+py*3+seed)*.005,py+Math.sin(px*5+pz*2+seed)*.006,pz+Math.sin(px*4+py*3+seed)*.005);}
+  const g=new THREE.ExtrudeGeometry(shape,{depth:Math.max(.004,d-r*2),bevelEnabled:true,bevelSize:r*.7,bevelThickness:r,bevelSegments:4,steps:Math.max(2,Math.ceil(d/.16)),curveSegments:7});g.translate(0,0,-d/2+r);
+  const p=g.attributes.position,normals=g.attributes.normal;
+  const uv=g.attributes.uv,longX=w>=d;
+  for(let i=0;i<p.count;i++){
+    const px=p.getX(i),py=p.getY(i),pz=p.getZ(i),wave=Math.sin(pz*3.1+px*2+seed)*.008;
+    p.setXYZ(i,px+Math.sin(pz*4+py*3+seed)*.010,py+wave+Math.sin(px*5+pz*2+seed)*.008,pz+Math.sin(px*4+py*3+seed)*.008);
+    const end=Math.abs(longX?normals.getX(i):normals.getZ(i))>.6;
+    const cross=Math.abs(normals.getY(i))>.6?(longX?pz/d:px/w):py/h;
+    uv.setXY(i,(end?(longX?pz/d:px/w):cross)*.64+.5+Math.sin(seed*17)*.13,(longX?px/w:pz/d)*.78+.5);
+  }
   g.computeVertexNormals();return g;
 }
 function oval(b,p,s,m,seed=0) {
@@ -20,19 +28,16 @@ function stroke(b,points,r,m,end=r*.7){b.add(tube(points,r,end,Math.max(10,point
 export function makeJourneyPalette(palette) {
   const cloth=palette.inkMaterial('#abaea5',.3,0,1,.0024,0,'cloth');cloth.uniforms.uStrength.value=.23;
   const paper=palette.inkMaterial('#dcded4',.2,0,1,.0024,0,'cloth');paper.uniforms.uStrength.value=.12;
-  const horse=palette.inkMaterial('#b1b1a7',.3,0,1,.0024,0,'cloth');horse.uniforms.uStrength.value=.44;
-  const coat=document.createElement('canvas');coat.width=coat.height=512;const cc=coat.getContext('2d');cc.fillStyle='#c2c5bb';cc.fillRect(0,0,512,512);
-  for(let i=0;i<1700;i++){const x=(Math.sin(i*41.73)*.5+.5)*512,y=(Math.sin(i*83.19+2)*.5+.5)*512;cc.strokeStyle=`rgba(99,116,98,${.025+(i%7)*.006})`;cc.lineWidth=.6+(i%4)*.6;cc.beginPath();cc.moveTo(x,y);cc.quadraticCurveTo(x+4,y+8,x+Math.sin(i)*5,y+13+i%23);cc.stroke();}
-  for(let i=0;i<70;i++){const x=(Math.sin(i*59.3)*.5+.5)*512,y=(Math.sin(i*19.7)*.5+.5)*512;const wash=cc.createRadialGradient(x,y,1,x,y,30+i%40);wash.addColorStop(0,'rgba(105,119,105,.08)');wash.addColorStop(1,'rgba(105,119,105,0)');cc.fillStyle=wash;cc.fillRect(x-70,y-70,140,140);}
-  const coatTexture=new THREE.CanvasTexture(coat);coatTexture.colorSpace=THREE.SRGBColorSpace;coatTexture.wrapS=coatTexture.wrapT=THREE.RepeatWrapping;palette.ready.then(()=>{horse.uniforms.uPigment.value=coatTexture;});
   const dark=palette.inkMaterial('#535c56',.4,0,1,.0024,0,'wood');dark.uniforms.uStrength.value=.20;
-  return {...palette,cloth,paper,horse,dark};
+  const rigPaint=createRigPaint();
+  return {...palette,cloth,paper,horse:rigPaint.horse,dark,rigPaint,rigReady:rigPaint.ready};
 }
 
 export function buildWagon(p) {
   const rig=new THREE.Group();rig.name='路邊木車與馬・面向出口';
-  const body=new THREE.Group(),b=new BrushBatch(),wood=p.hullMaterial,dark=p.dark;
-  const plank=(w,h,d,at,rot=[0,0,0])=>b.add(softBox(w,h,d),wood,at,rot);
+  const body=new THREE.Group(),b=new BrushBatch(),wood=p.rigPaint.wood,dark=p.rigPaint.dark;
+  let plankSeed=0;
+  const plank=(w,h,d,at,rot=[0,0,0])=>b.add(softBox(w,h,d,++plankSeed),wood,at,rot);
   // Uneven timber boards, open tail, rounded rims and visible end pegs.
   for(let i=0;i<9;i++)plank(.225,.12,3.15,[(i-4)*.233,1.23,0]);
   for(const x of [-.89,.89])plank(.13,.16,3.45,[x,1.07,0]);
@@ -51,25 +56,26 @@ export function buildWagon(p) {
   const wheels=[];
   for(const side of [-1,1]) {
     const wheel=new THREE.Group(),wb=new BrushBatch();wheel.position.set(side*1.27,.78,0);
-    const ring=radius=>Array.from({length:65},(_,i)=>[0,Math.sin(i/64*TAU)*radius,Math.cos(i/64*TAU)*radius]);
+    const ring=radius=>Array.from({length:97},(_,i)=>{const a=i/96*TAU,r=radius*(1+.018*Math.sin(a*3+side)+.009*Math.sin(a*7));return [.008*Math.sin(a*4),Math.sin(a)*r,Math.cos(a)*r];});
     wb.add(tube(ring(.73),.072,.072,64,8),wood);wb.add(tube(ring(.76),.018,.018,64,5),dark);
-    for(let i=0;i<12;i++){const a=i/12*TAU;stroke(wb,[[0,0,0],[0,Math.sin(a)*.37,Math.cos(a)*.37],[0,Math.sin(a)*.68,Math.cos(a)*.68]],.028,wood);}
+    for(let i=0;i<12;i++){const a=i/12*TAU+.018*Math.sin(i*7);stroke(wb,[[0,0,0],[.012*Math.sin(i),Math.sin(a+.025)*.37,Math.cos(a+.025)*.37],[0,Math.sin(a)*.68,Math.cos(a)*.68]],.026,wood);}
     oval(wb,[0,0,0],[.14,.12,.12],dark);wb.finish(wheel,'手繪木輪・輪輻');body.add(wheel);wheels.push(wheel);
   }
   // Two curved bows support a light, irregular cloth roof, with an open rear.
   for(const z of [-.65,1.1]) {
-    const arch=Array.from({length:19},(_,i)=>{const a=i/18*Math.PI;return [-1.06*Math.cos(a),1.98+Math.sin(a)*.88,z];});
-    stroke(b,arch,.027,wood);
+    const arch=Array.from({length:35},(_,i)=>{const a=i/34*Math.PI;return [-1.06*Math.cos(a)+.014*Math.sin(a*3+z),1.98+Math.sin(a)*(.88+.014*Math.sin(a*5))+.008*Math.sin(a*8+z),z+.008*Math.sin(a*6)];});
+    stroke(b,arch,.023,wood);
   }
-  const roofPos=[],roofUV=[],roofI=[],nr=22,nz=12;
+  const roofPos=[],roofUV=[],roofI=[],nr=48,nz=28;
   for(let j=0;j<=nz;j++)for(let i=0;i<=nr;i++){
     const a=i/nr*Math.PI,z=-.72+j/nz*1.92;
-    roofPos.push(-1.09*Math.cos(a),1.99+Math.sin(a)*.89+.017*Math.sin(i*1.8+z*3),z);
-    roofUV.push(i/nr*1.7,j/nz);
+    const sag=Math.sin(j/nz*Math.PI)*.055,fold=Math.sin(a*7+z*.7)*.016+Math.sin(a*13-z*1.8)*.007;
+    roofPos.push(-1.09*Math.cos(a)+Math.cos(a)*fold,1.99+Math.sin(a)*(.89-sag)+fold,z+.022*Math.sin(a*9+z*2));
+    roofUV.push(i/nr*.95,j/nz*.95);
     if(i<nr&&j<nz){const q=j*(nr+1)+i,t=q+nr+1;roofI.push(q,t,q+1,q+1,t,t+1);}
   }
-  const roof=new THREE.BufferGeometry();roof.setAttribute('position',new THREE.Float32BufferAttribute(roofPos,3));roof.setAttribute('uv',new THREE.Float32BufferAttribute(roofUV,2));roof.setIndex(roofI);roof.computeVertexNormals();b.add(roof,p.paper);
-  for(const x of [-1.05,1.05])stroke(b,[[x,1.99,-.70],[x*1.01,1.96,.2],[x,2,1.2]],.018,p.cloth);
+  const roof=new THREE.BufferGeometry();roof.setAttribute('position',new THREE.Float32BufferAttribute(roofPos,3));roof.setAttribute('uv',new THREE.Float32BufferAttribute(roofUV,2));roof.setIndex(roofI);roof.computeVertexNormals();b.add(roof,p.rigPaint.cloth);
+  for(const x of [-1.05,1.05])stroke(b,[[x,1.99,-.70],[x*1.01,1.96,.2],[x,2,1.2]],.013,p.rigPaint.cloth);
   // Thin snow streaks sit on broad curved surfaces rather than polygonal caps.
   for(const x of [-1.06,1.06])stroke(b,[[x,1.99,-1.1],[x+.015,2.01,-.8],[x,1.99,-.4]],.026,p.snowMaterial,.008);
   // Long shafts and rope traces join the cart to the horse.
@@ -81,22 +87,43 @@ export function buildWagon(p) {
   const horse=buildHorse(p);horse.position.z=4.9;rig.add(horse);
   // A few ordinary bundles establish an occupied travelling cart without adding another NPC.
   const bundles=new BrushBatch();oval(bundles,[.65,1.48,1.1],[.31,.22,.28],p.cloth);stroke(bundles,[[.4,1.5,.9],[.67,1.72,1.1],[.89,1.49,1.3]],.018,dark);bundles.finish(body,'車前行囊');
+  addRigBleed(rig);
   return {rig,body,horse,wheels};
 }
 
+function horseSilhouette(){
+  // One swept skin joins haunch, barrel, shoulder, curved neck and muzzle.
+  // A continuous cross-section avoids visible intersections between ellipsoids.
+  const profiles=[
+    [1.40,-1.27,.035,.05],[1.43,-1.10,.32,.41],[1.44,-.76,.43,.53],
+    [1.39,-.20,.46,.57],[1.45,.30,.41,.54],[1.63,.56,.31,.41],
+    [1.98,.58,.245,.32],[2.31,.73,.22,.29],[2.48,.93,.225,.27],
+    [2.40,1.16,.22,.25],[2.24,1.43,.20,.18],[2.18,1.66,.17,.14],
+    [2.18,1.77,.035,.04],
+  ];
+  const curve=new THREE.CatmullRomCurve3(profiles.map(p=>new THREE.Vector3(0,p[0],p[1])));
+  const radii=new THREE.CatmullRomCurve3(profiles.map(p=>new THREE.Vector3(p[2],p[3],0)));
+  const positions=[],uv=[],indices=[],rings=112,sides=40;
+  for(let j=0;j<=rings;j++){
+    const t=j/rings,c=curve.getPoint(t),r=radii.getPoint(t),tangent=curve.getTangent(t).normalize();
+    const up=new THREE.Vector3(0,tangent.z,-tangent.y);
+    for(let i=0;i<=sides;i++){
+      const a=i/sides*TAU,ruffle=1+.014*Math.sin(a*5+t*18)+.006*Math.sin(a*11-t*27);
+      const point=c.clone().add(new THREE.Vector3(Math.cos(a)*r.x*ruffle,0,0)).addScaledVector(up,Math.sin(a)*r.y*ruffle);
+      positions.push(point.x,point.y,point.z);uv.push(i/sides*.98,t*.98);
+      if(i<sides&&j<rings){const n=j*(sides+1)+i,m=n+sides+1;indices.push(n,n+1,m,m,n+1,m+1);}
+    }
+  }
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));g.setIndex(indices);g.computeVertexNormals();return g;
+}
+
 function buildHorse(p) {
-  const group=new THREE.Group(),b=new BrushBatch(),m=p.horse,dark=p.dark;
-  // Soft continuous muscles overlap along their natural folds; fine brush contours describe joints.
-  oval(b,[0,1.39,-.15],[.46,.60,1.04],m,1);
-  oval(b,[0,1.49,.48],[.43,.56,.48],m,2);oval(b,[0,1.44,-.84],[.44,.52,.48],m,3);
-  const neck=new THREE.Group(),nb=new BrushBatch();
-  oval(nb,[0,2.02,.69],[.28,.72,.39],m,4);nb.finish(neck,'馬頸淡墨');neck.rotation.x=.26;neck.position.set(0,.22,-.35);group.add(neck);
-  oval(b,[0,2.43,1.03],[.25,.37,.40],m,5);oval(b,[0,2.22,1.35],[.235,.23,.38],m,6);
+  const group=new THREE.Group(),b=new BrushBatch(),m=p.horse,dark=p.rigPaint.dark;
+  b.add(horseSilhouette(),m);
   // Jaw and muzzle wash, nostrils, eyes, long ears and a broken ink mane.
-  oval(b,[0,2.15,1.59],[.23,.16,.18],p.cloth);
   for(const side of [-1,1]){
-    oval(b,[side*.225,2.47,1.14],[.021,.027,.035],dark);
-    oval(b,[side*.21,2.21,1.65],[.016,.032,.042],dark);
+    oval(b,[side*.22,2.47,1.05],[.020,.024,.031],dark);
+    oval(b,[side*.17,2.21,1.64],[.015,.025,.036],dark);
     oval(b,[side*.15,2.78,.91],[.062,.16,.085],m);
     stroke(b,[[side*.15,2.73,.98],[side*.15,2.87,.94]],.017,dark,.006);
     // Four legs have shoulders, knees, sloping pasterns and softened hooves.
@@ -105,7 +132,7 @@ function buildHorse(p) {
       stroke(b,[[side*.30,1.50,z],[side*.32,.93,z+lean],[side*.31,.70,z+lean+offset]],.125,m,.073);
       stroke(b,[[side*.31,.76,z+lean+offset],[side*.30,.31,z+.09+offset],[side*.30,.13,z+.17+offset]],.067,m,.047);
       oval(b,[side*.30,.10,z+.23+offset],[.095,.09,.155],dark);
-      stroke(b,[[side*.36,1.18,z+.02],[side*.36,.82,z+lean+offset]],.009,p.cloth,.006);
+      stroke(b,[[side*.36,1.18,z+.02],[side*.36,.82,z+lean+offset]],.007,p.rigPaint.cloth,.004);
     }
   }
   for(let i=0;i<17;i++){
@@ -117,10 +144,10 @@ function buildHorse(p) {
   stroke(b,[[-.25,2.30,1.45],[0,2.33,1.54],[.25,2.30,1.45]],.018,dark);
   for(const side of [-1,1]){
     stroke(b,[[side*.24,2.25,1.43],[side*.26,2.57,1.06],[side*.15,2.70,.90]],.017,dark);
-    stroke(b,[[side*.40,1.60,.52],[side*.28,1.34,.94],[0,1.26,1.04]],.035,p.cloth);
+    stroke(b,[[side*.40,1.60,.52],[side*.28,1.34,.94],[0,1.26,1.04]],.027,p.rigPaint.cloth);
     stroke(b,[[side*.24,2.28,1.4],[side*.63,1.78,.1],[side*.82,1.68,-2.8]],.010,dark,.008);
   }
-  stroke(b,[[-.41,1.50,-.3],[-.35,1.93,-.3],[0,1.99,-.3],[.35,1.93,-.3],[.41,1.50,-.3]],.035,p.cloth);
+  stroke(b,[[-.41,1.50,-.3],[-.35,1.93,-.3],[0,1.99,-.3],[.35,1.93,-.3],[.41,1.50,-.3]],.027,p.rigPaint.cloth);
   // Snow caught on the back dissolves into the coat through fine narrow traces.
   for(let i=0;i<7;i++)stroke(b,[[.06*Math.sin(i),1.99,-.78+i*.15],[.12,2.0,-.74+i*.15]],.017,p.snowMaterial,.004);
   b.finish(group,'馬・乾筆毛色與鬃毛');return group;

@@ -1,7 +1,7 @@
 import * as THREE from './vendor/three.module.js';
-import { LUGGAGE, createJourneyState } from './journey-state.js?v=0.8.0';
-import { makeJourneyPalette, buildWagon, buildLuggage, buildDeadBranch } from './journey-props.js?v=0.8.0';
-import { buildWinterPlant, BrushBatch, tube } from './props.js?v=0.8.0';
+import { LUGGAGE, createJourneyState } from './journey-state.js?v=0.9.0';
+import { makeJourneyPalette, buildWagon, buildLuggage, buildDeadBranch } from './journey-props.js?v=0.9.0';
+import { buildWinterPlant, BrushBatch, tube } from './props.js?v=0.9.0';
 export const WAGON_SITE=Object.freeze({x:-28.4,z:45.5,yaw:0});
 export const JOURNEY_SPAWN=Object.freeze({x:-32.2,z:39.0,yaw:3.62,pitch:-.025});
 const ease=t=>t*t*(3-2*t);
@@ -173,7 +173,7 @@ export function createJourney({scene,palette,heightAt,collisions}) {
       if(site.data.id==='decree'){const snow=site.cover.children[0],v=snow.geometry.attributes.position;for(let i=0;i<v.count;i++)v.setY(i,snow.userData.digBase[i]+snow.userData.digDrift[i]);v.needsUpdate=true;snow.geometry.computeVertexNormals();snow.material.uniforms.uDigRemaining.value=1;}
     }
   }
-  return {candidate,act,update,reset,focusPoint:()=>working?sites.get(working).item.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0,.18,0)):null,items:LUGGAGE,wagon,spawn:JOURNEY_SPAWN,depositPosition,
+  return {candidate,act,update,reset,ready:p.rigReady,focusPoint:()=>working?sites.get(working).item.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0,.18,0)):null,items:LUGGAGE,wagon,spawn:JOURNEY_SPAWN,depositPosition,
     getState:()=>({...state.snapshot(),working,progress:working?clamp(elapsed/sites.get(working).data.duration,0,1):0,lastCompleted,wagon:{x:WAGON_SITE.x,z:WAGON_SITE.z,facing:'+z',returnX:depositPosition.x,returnZ:depositPosition.z}}),
   };
 }

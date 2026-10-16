@@ -86,3 +86,13 @@ Avoid: large white snow patches, blank white border, texture vignette, path outl
 輸入編輯目標：首次生成的中性灰冬泥碎礫材質。
 最終原始檔：`/Users/charles/.codex/generated_images/01a13e90-6325-7902-92bb-8c7752a906a2/exec-3f31b823-0e94-4a1f-9564-0ec958d9c490.png`。
 建議：世界座標約 0.23 repeats/m，疊加旋轉的低強度第二次取樣，以約 0.6 權重融入道路墨洗；依近景調整。
+
+## 0.9 馬車與馬匹專用筆墨圖集（2026-10-16）
+
+模式：內建 imagegen；以已選定的 `dist/assets/art-reference.png` 作風格參考，一次生成。原始輸出保留，複製至 `dist/assets/rig-brush-atlas-v1.png`。圖集由上至下為馬毛乾筆、舊木纖維及淡墨布紋。材質僅用於馬匹與馬車，配合淡墨表面、飛白邊緣及薄墨暈層；不改動風景和孤舟材質。墨鳥羽毛以原生曲面及淡墨 shader 製作，沒有新增外部依賴。
+
+原始檔：`/Users/charles/.codex/generated_images/01a13e54-5ebd-7b11-9967-8923eaf81aab/exec-ecbe1fdd-f678-48f4-8b9c-fc3acfea594a.png`。
+
+### 生成提示詞（原文）
+
+Create a 2D production texture atlas for a Chinese ink wash game, using the attached landscape only as a style reference. OUTPUT ONLY FLAT MATERIAL MARKS, NOT A SCENE OR ANY OBJECT. One square image, divided into three equal horizontal bands stacked vertically with absolutely no borders, gutter, labels, text or frames. The TOP third: pale silver grey horse hair and fur represented by beautifully irregular Chinese dry-brush strokes, fine flowing hair lines, occasional broad smoky grey washes, broken brush tips and plentiful untouched paper; the horse itself must NOT be pictured. The MIDDLE third: aged wood represented by elegant long thin mostly vertical charcoal grey wood grain brush strokes, subtle irregular knots and dry calligraphic streaks, grey ink bleeding softly into white paper; NOT actual boards, no seams. The BOTTOM third: extremely pale off-white linen wash with quiet fine fibres, a few light silver grey fold strokes, softly blooming watery edges, lots of empty white. All marks should feel hand painted with traditional Chinese brush on fine rice paper. Restrained palette of cool light greys, only a few small medium grey or charcoal accents, no brown, no saturated colour. Match the light, delicate, atmospheric brushwork of the reference rather than its mountains. No lighting, no 3D relief, no realistic photographic material, no square speckle patterns, no solid dark patches. Very detailed thin dry brushwork over broad delicate fluid washes, high resolution.
