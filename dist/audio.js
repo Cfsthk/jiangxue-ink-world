@@ -8,12 +8,14 @@ export class Soundscape {
     this.layers = [];
     this.activeSources = new Set();
     this.transientGains = new Map();
-    this.timeouts = new Set();
     this.environment = { wind: 0.45, river: 0, shelter: 0 };
     this.lastStep = -Infinity;
-    this.lastCall = -Infinity;
-    this.callInProgress = false;
-    this.callToken = 0;
+    this.pipaBuffers = new Map();
+    this.musicSources = new Set();
+    this.nextPhraseAt = null;
+    this.phrasesPlayed = 0;
+    this.lastPhraseAt = null;
+    this.lastMusicMix = 0;
     this.stepInterval = 0.24;
     this.lastStepDuration = 0;
     this.windScheduledUntil = 0;
@@ -50,13 +52,16 @@ export class Soundscape {
     this.muted = Boolean(value);
     if (this.master) this.ramp(this.master.gain, this.muted ? 0 : 0.48, 0.35);
     if (this.muted) {
-      this.cancelCall();
+      this.nextPhraseAt = null;
       this.fadeTransients();
       if (this.context && this.windGust) {
         this.ramp(this.windGust.gain, 0.38, 0.4);
         this.windScheduledUntil = 0;
       }
-    } else if (changed) this.queueWindGusts(true);
+    } else if (changed) {
+      this.nextPhraseAt = null;
+      this.queueWindGusts(true);
+    }
   }
 
   /** Values are clamped to 0–1. Safe to call once per animation frame. */
@@ -71,6 +76,7 @@ export class Soundscape {
     this.wind.gain.gain.setTargetAtTime((0.011 + wind * 0.060) * (1 - shelter * 0.83), now, 0.85);
     this.river.gain.gain.setTargetAtTime(river * river * 0.037 * (1 - shelter * 0.58), now, 1.15);
     this.queueWindGusts();
+    this.queuePipaPhrase();
   }
 
   /** Native gain automation makes real gusts; random rise, hold and lull lengths
@@ -125,48 +131,87 @@ export class Soundscape {
     this.softTone(420, 0.13, 0.027, 0, 185);
   }
 
-  call() {
-    if (!this.canPlay() || this.callInProgress) return;
-    const now = performance.now();
-    if (now - this.lastCall < 6500) return;
-    this.lastCall = now;
-    this.callInProgress = true;
-    const token = ++this.callToken;
-    const synth = window.speechSynthesis;
-    const voices = synth?.getVoices() || [];
-    const voice = voices.find(v => /zh[-_]HK|yue/i.test(v.lang)) || voices.find(v => /^zh/i.test(v.lang));
-    if (synth && window.SpeechSynthesisUtterance && voice) {
-      const speak = (volume, rate, done) => {
-        if (token !== this.callToken || !this.canPlay()) return;
-        const utterance = new SpeechSynthesisUtterance('有人嗎？');
-        utterance.voice = voice;
-        utterance.lang = voice.lang;
-        utterance.rate = rate;
-        utterance.pitch = 0.98;
-        utterance.volume = volume;
-        utterance.onend = () => {
-          if (token === this.callToken) done();
-        };
-        utterance.onerror = () => {
-          if (token === this.callToken) this.callInProgress = false;
-        };
-        synth.speak(utterance);
-      };
-      speak(0.20, 0.88, () => {
-        this.later(() => speak(0.055, 0.77, () => { this.callInProgress = false; }), 580);
-      });
-      // Prevent a stalled browser speech engine from locking out later calls.
-      this.later(() => {
-        if (token === this.callToken) this.callInProgress = false;
-      }, 6000);
-    } else {
-      // Soft, short call-and-echo cue for systems without a Chinese voice.
-      for (const [offset, level] of [[0, 0.042], [1.4, 0.014], [2.35, 0.005]]) {
-        this.softTone(370, 0.28, level, offset);
-        this.softTone(312, 0.38, level * 0.8, offset + 0.26);
-      }
-      this.later(() => { this.callInProgress = false; }, 3100);
+  /** A few unhurried pentatonic plucks, followed by a long stretch of wind.
+   * The frame clock schedules only the current phrase, so returning from a
+   * paused / hidden tab cannot play a backlog of missed music. */
+  queuePipaPhrase() {
+    if (!this.canPlay()) return;
+    const now = this.context.currentTime;
+    if (this.nextPhraseAt === null) {
+      this.nextPhraseAt = now + 12 + Math.random() * 6;
+      return;
     }
+    if (now < this.nextPhraseAt) return;
+    const motifs = [
+      [[293.66, 0], [392.00, 0.39], [329.63, 0.91]],
+      [[261.63, 0], [293.66, 0.48]],
+      [[392.00, 0], [440.00, 0.32], [329.63, 0.77], [293.66, 1.24]],
+      [[329.63, 0], [261.63, 0.56], [293.66, 1.10]],
+    ];
+    const notes = motifs[Math.floor(Math.random() * motifs.length)];
+    const { wind, shelter } = this.environment;
+    // Keep the instrument below the wind, including its quieter lulls.
+    const mix = 0.0105 * (0.70 + wind * 0.30) * (1 - shelter * 0.12);
+    notes.forEach(([frequency, delay], index) => {
+      this.pluckPipa(frequency, mix * (index === 0 ? 1 : 0.88), delay);
+    });
+    this.phrasesPlayed++;
+    this.lastPhraseAt = now;
+    this.lastMusicMix = mix;
+    this.nextPhraseAt = now + notes.at(-1)[1] + 35 + Math.random() * 30;
+  }
+
+  /** A damped plucked string with a small wooden-body resonance and nail
+   * transient. A cached sample keeps later phrases cheap and avoids the
+   * organ-like sustain of a bank of oscillators. */
+  makePipaBuffer(frequency) {
+    if (this.pipaBuffers.has(frequency)) return this.pipaBuffers.get(frequency);
+    const ctx = this.context, duration = 2.05;
+    const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * duration), ctx.sampleRate);
+    const samples = buffer.getChannelData(0);
+    const period = Math.max(3, Math.round(ctx.sampleRate / frequency - 0.5));
+    const string = new Float32Array(period);
+    let average = 0;
+    for (let i = 0; i < period; i++) {
+      string[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / period);
+      average += string[i] / period;
+    }
+    for (let i = 0; i < period; i++) string[i] -= average;
+    let peak = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const index = i % period, t = i / ctx.sampleRate;
+      const vibration = string[index];
+      string[index] = 0.4982 * (vibration + string[(index + 1) % period]);
+      const phase = Math.PI * 2 * frequency * t;
+      const body = Math.sin(phase) * 0.13 * Math.exp(-3.8 * t)
+        + Math.sin(phase * 2.003) * 0.055 * Math.exp(-7.6 * t);
+      const nail = (Math.random() * 2 - 1) * 0.045 * Math.exp(-t * 280);
+      const attack = Math.min(1, t / 0.0018);
+      const release = Math.min(1, (duration - t) / 0.085);
+      samples[i] = (vibration * Math.exp(-1.35 * t) + body + nail) * attack * release;
+      peak = Math.max(peak, Math.abs(samples[i]));
+    }
+    const normalise = peak > 0 ? 0.72 / peak : 1;
+    for (let i = 0; i < samples.length; i++) samples[i] *= normalise;
+    this.pipaBuffers.set(frequency, buffer);
+    return buffer;
+  }
+
+  pluckPipa(frequency, volume, delay = 0) {
+    const ctx = this.context, start = ctx.currentTime + delay;
+    const source = ctx.createBufferSource();
+    source.buffer = this.makePipaBuffer(frequency);
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = 3100;
+    lowpass.Q.value = 0.45;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(volume, start);
+    gain.gain.linearRampToValueAtTime(0, start + source.buffer.duration);
+    source.connect(lowpass).connect(gain).connect(this.master);
+    this.track(source, [lowpass, gain], gain.gain, 'music');
+    source.start(start);
+    source.stop(start + source.buffer.duration + 0.01);
   }
 
   canPlay() {
@@ -261,11 +306,13 @@ export class Soundscape {
     source.stop(start + duration + 0.04);
   }
 
-  track(source, nodes, gain) {
+  track(source, nodes, gain, kind = null) {
     this.activeSources.add(source);
+    if (kind === 'music') this.musicSources.add(source);
     if (gain) this.transientGains.set(source, gain);
     source.onended = () => {
       this.activeSources.delete(source);
+      this.musicSources.delete(source);
       this.transientGains.delete(source);
       source.disconnect();
       for (const node of nodes) node.disconnect();
@@ -289,13 +336,15 @@ export class Soundscape {
     }
   }
 
-  /** Restart cleanup: cancel scheduled calls/echoes and footfalls, leave the
-   * environmental layers intact, and permit the new journey's first action. */
+  /** Restart cleanup: fade plucks and footfalls, keep the environmental
+   * layers intact, and leave a quiet opening before the next music phrase. */
   resetTransients() {
-    this.cancelCall();
     this.fadeTransients();
+    this.nextPhraseAt = null;
+    this.phrasesPlayed = 0;
+    this.lastPhraseAt = null;
+    this.lastMusicMix = 0;
     this.lastStep = -Infinity;
-    this.lastCall = -Infinity;
     this.lastStepDuration = 0;
   }
 
@@ -309,31 +358,20 @@ export class Soundscape {
       gustScheduledUntil: this.windScheduledUntil,
       lastStep: Number.isFinite(this.lastStep) ? this.lastStep : null,
       stepInterval: this.stepInterval, lastStepDuration: this.lastStepDuration,
-      activeTransients: this.activeSources.size, callInProgress: this.callInProgress,
+      activeTransients: this.activeSources.size,
+      music: Object.freeze({
+        instrument: 'pipa', phrasesPlayed: this.phrasesPlayed,
+        nextPhraseAt: this.nextPhraseAt, lastPhraseAt: this.lastPhraseAt,
+        activePlucks: this.musicSources.size, mix: this.lastMusicMix,
+        firstDelaySeconds: [12, 18], gapSeconds: [35, 65],
+      }),
     });
-  }
-
-  later(fn, ms) {
-    const timer = window.setTimeout(() => {
-      this.timeouts.delete(timer);
-      if (!this.disposed) fn();
-    }, ms);
-    this.timeouts.add(timer);
-  }
-
-  cancelCall() {
-    ++this.callToken;
-    this.callInProgress = false;
-    for (const timer of this.timeouts) window.clearTimeout(timer);
-    this.timeouts.clear();
-    // This prototype owns its speech queue and never leaves a whispered echo queued.
-    window.speechSynthesis?.cancel();
   }
 
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    this.cancelCall();
+    this.nextPhraseAt = null;
     for (const source of [...this.layers, ...this.activeSources]) {
       try { source.stop(); } catch (_) { /* Already finished. */ }
       source.disconnect();
@@ -341,6 +379,8 @@ export class Soundscape {
     this.layers.length = 0;
     this.activeSources.clear();
     this.transientGains.clear();
+    this.musicSources.clear();
+    this.pipaBuffers.clear();
     this.windGust?.disconnect();
     this.master?.disconnect();
     this.context?.close().catch(() => {});

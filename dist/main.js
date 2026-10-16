@@ -1,8 +1,8 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=1.0.0';
-import { Soundscape } from './audio.js?v=1.0.0';
-import { InkWash } from './wash.js?v=1.0.0';
-import { createGroundSnow } from './ground-snow.js?v=1.0.0';
+import { createWorld } from './world.js?v=1.1.0';
+import { Soundscape } from './audio.js?v=1.1.0';
+import { InkWash } from './wash.js?v=1.1.0';
+import { createGroundSnow } from './ground-snow.js?v=1.1.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
@@ -18,8 +18,8 @@ const state = { ready: false, started: false, entering: false, paused: false, en
 const player = { x: -32, z: 44, y: 0, yaw: -.85, pitch: -.08, targetYaw: -.85, targetPitch: -.08, vx: 0, vz: 0 };
 const joy = { x: 0, y: 0, id: null };
 let renderer, camera, world, wash;
-let lastTime = performance.now(), footDistance = 0, lastPlayer = null, feedbackTimer, callTime = -100, interactionTime = -100;
-let echoAt = Infinity, shelter = 0;
+let lastTime = performance.now(), footDistance = 0, lastPlayer = null, feedbackTimer, interactionTime = -100;
+let shelter = 0;
 let drag = null, focusUntil = 0, frameSamples = 0, fpsTime = 0;
 let nextFoot = 1, snowCount = 0, powderDiagnostics = null;
 const footprints = [], effects = [];
@@ -35,6 +35,7 @@ function notify(text, duration = 3500) {
 }
 
 function clearInput() {
+  $('interact').hidden=true;
   keys.clear();
   player.vx = player.vz = 0;
   joy.x = joy.y = 0;
@@ -52,7 +53,6 @@ function syncSound() {
 
 function openMenu() {
   clearInput();
-  echoAt = Infinity;
   state.paused = true;
   $('resume').textContent = state.started ? '繼續漫遊 ↗' : '返回畫面 ↗';
   $('restart').hidden = !state.started;
@@ -76,7 +76,7 @@ function restart() {
   $('ending').hidden=true;
   $('hud').classList.remove('journey-ended');
   Object.assign(player, world.spawn);
-  world.bird.reset(world.spawn);
+  world.trail.reset(world.spawn);
   player.targetYaw = player.yaw;
   player.targetPitch = player.pitch;
   player.y = world.heightAt(player.x, player.z) + 1.65;
@@ -89,8 +89,7 @@ function restart() {
   focusUntil = 0;
   for (const effect of effects) disposeEffect(effect.object);
   effects.length = 0;
-  echoAt = Infinity;
-  callTime = interactionTime = -100;
+  interactionTime = -100;
   shelter = 0;
   state.target = null;
   clearTimeout(feedbackTimer);
@@ -114,7 +113,7 @@ async function start() {
   setTimeout(() => {
     state.entering = false;
     syncJourneyHUD();
-    notify('墨鳥飛到行李旁等候。走近後，點選物件或按 E。',6500);
+    notify('沿路墨點通往行李。走近後，點選按鈕或按 E。',6500);
     canvas.focus({ preventScroll: true });
   }, reducedMotion ? 70 : 2800);
 }
@@ -126,7 +125,7 @@ function syncJourneyHUD(){
   $('open-luggage').setAttribute('aria-label',`查看行李與已讀往事，已歸還 ${j.returned} 件，共 5 件`);
 }
 function showStory(item){
-  clearInput();echoAt=Infinity;state.paused=true;state.target=null;
+  clearInput();state.paused=true;state.target=null;
   $('story-year').textContent=item.title;$('story-title').textContent=item.name;$('story-title').dataset.long=String(item.name.length>5);$('story-text').textContent=item.text;$('story-detail').textContent=item.detail;$('story-art').innerHTML=storyArt(item.id);
   if(luggageDialog.open)luggageDialog.close();
   if(!storyDialog.open)storyDialog.showModal();syncSound();$('story-continue').focus();
@@ -137,11 +136,11 @@ function closeStory(){
 }
 function openLuggage(){
   if(!world||!state.started||state.entering||state.ended)return;
-  clearInput();state.paused=true;echoAt=Infinity;syncSound();
+  clearInput();state.paused=true;syncSound();
   const j=world.journey.getState();
   $('luggage-list').innerHTML=world.journey.items.map((item,index)=>{
     const entry=j.items[index],returned=entry.status==='returned',read=j.storiesRead.includes(item.id);
-    const status=returned?'已歸還・重讀':entry.status==='carried'?'手中行李':!entry.unlocked?(item.id==='farewell'?'最後尋回':'稍後尋回'):entry.status==='ready'?'可以拾起':'墨鳥引路';
+    const status=returned?'已歸還・重讀':entry.status==='carried'?'手中行李':!entry.unlocked?(item.id==='farewell'?'最後尋回':'稍後尋回'):entry.status==='ready'?'可以拾起':'墨點引路';
     const tag=read?'button':'div',attr=read?`type="button" data-story="${item.id}"`:'class="luggage-row"';
     return `<li><${tag} ${attr}><img class="journal-art" src="./assets/props-v2/${item.id}.png" alt=""><span class="item-number">${index+1}</span><span><strong>${item.name}</strong><small>${item.place}</small></span><span class="item-state">${status}</span></${tag}></li>`;
   }).join('');
@@ -149,7 +148,7 @@ function openLuggage(){
 }
 function closeLuggage(){if(luggageDialog.open)luggageDialog.close();state.paused=false;clearInput();syncSound();canvas.focus({preventScroll:true});detectInteraction();}
 function finishJourney(){
-  clearInput();state.ended=true;state.paused=false;state.target=null;echoAt=Infinity;clearTimeout(feedbackTimer);$('feedback').classList.remove('visible');
+  clearInput();state.ended=true;state.paused=false;state.target=null;clearTimeout(feedbackTimer);$('feedback').classList.remove('visible');
   $('hud').classList.add('journey-ended');$('ending').hidden=false;
   const at=world.journey.wagon.rig.position,dx=at.x-player.x,dz=at.z+1-player.z;
   const direction=Math.atan2(-dx,-dz);player.targetYaw=player.yaw+Math.atan2(Math.sin(direction-player.yaw),Math.cos(direction-player.yaw));player.targetPitch=-.025;
@@ -237,14 +236,6 @@ function shakePine(target) {
   effects.push({ type: 'snow', object: snow, speeds, age: 0, life: 3.5 });
 }
 
-function call() {
-  if (!isPlaying() || state.time - callTime < 6.5) return;
-  callTime = state.time;
-  sound.call();
-  notify('有人嗎？', 1800);
-  echoAt = state.time + 2.3;
-}
-
 function interact() {
   if(!isPlaying())return;
   detectInteraction();
@@ -264,7 +255,6 @@ function interact() {
   }
   if (target.type === 'pine') { shakePine(target); notify('枝頭落雪，又靜下來了。'); }
   else if (target.type === 'stone') { throwStone(); }
-  else if (target.type === 'echo') { call(); }
   else if (target.type === 'boat') {
     const p = target.object ? target.object.getWorldPosition(new THREE.Vector3()) : target.position;
     const direction = Math.atan2(-(p.x - player.x), -(p.z - player.z));
@@ -286,7 +276,24 @@ function detectInteraction() {
   }
   nearest=world.journey.candidate(player)||nearest;
   state.target = nearest;
+  updateInteractionPrompt();
+}
 
+const promptPoint=new THREE.Vector3();
+function updateInteractionPrompt(){
+  const button=$('interact'),target=state.target;
+  if(!isPlaying()||!target){button.hidden=true;return;}
+  promptPoint.copy(target.promptPosition||target.position);
+  if(!target.promptPosition)promptPoint.y+=.45;
+  promptPoint.project(camera);
+  if(promptPoint.z< -1||promptPoint.z>1||Math.abs(promptPoint.x)>1.12||Math.abs(promptPoint.y)>1.12){button.hidden=true;return;}
+  $('interact-label').textContent=target.label;
+  button.disabled=Boolean(target.busy);
+  button.setAttribute('aria-label',target.label+'，點擊或按 E');
+  button.hidden=false;
+  const half=Math.max(88,button.offsetWidth/2+16);
+  button.style.left=THREE.MathUtils.clamp((promptPoint.x*.5+.5)*innerWidth,half,innerWidth-half)+'px';
+  button.style.top=THREE.MathUtils.clamp((.5-promptPoint.y*.5)*innerHeight+28,100,innerHeight-72)+'px';
 }
 
 function disposeEffect(object) {
@@ -298,7 +305,6 @@ function disposeEffect(object) {
 }
 
 function updateEffects(dt) {
-  if (isPlaying() && state.time >= echoAt) { echoAt = Infinity; notify('回聲漸遠，無人應答。', 4000); }
   for (let i = footprints.length - 1; i >= 0; i--) {
     const foot = footprints[i], age = state.time - foot.born;
     foot.mesh.material.opacity = .64 * (1 - THREE.MathUtils.smoothstep(age, 2, 21));
@@ -428,7 +434,7 @@ async function init() {
     renderer.setPixelRatio(Math.min(devicePixelRatio, matchMedia('(pointer:coarse)').matches ? 1.3 : 1.65));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
-    await document.fonts.load('20px InkBrush');
+    await Promise.all([document.fonts.load('20px InkBrush'),document.fonts.load('20px InkCalligraphy')]);
     world = createWorld();
     wash = new InkWash(renderer);
     camera = new THREE.PerspectiveCamera(56, 1, .1, 720); camera.rotation.order = 'YXZ';
@@ -446,7 +452,7 @@ async function init() {
         state.time += dt;
         if (isPlaying()) move(dt);
         world.journey.update(dt,state.time,player);
-        world.bird.update(dt,state.time,player,isPlaying());
+        world.trail.update(dt,state.time,player,isPlaying());
         const workingFocus=world.journey.focusPoint();
         if(workingFocus&&isPlaying()){
           const dx=workingFocus.x-player.x,dz=workingFocus.z-player.z,direction=Math.atan2(-dx,-dz);
@@ -461,18 +467,19 @@ async function init() {
       const fov = state.time < focusUntil ? 44 : 56;
       camera.fov = THREE.MathUtils.damp(camera.fov, fov, 3, dt); camera.updateProjectionMatrix();
       if (isPlaying() && (interactionTick += dt) > .15) { detectInteraction(); interactionTick = 0; }
+      updateInteractionPrompt();
       wash.render(world.scene, camera, state.time);
       frameSamples++; fpsTime += elapsed;
       if (fpsTime > 1) { state.fps = Math.round(frameSamples / fpsTime); frameSamples = fpsTime = 0; }
     });
     // Let at least two real frames render before the image-to-world transition can start.
-    Promise.all([world.ready,document.fonts.load('20px InkBrush'),...['hat','scroll','decree','map','farewell'].map(id=>new Promise((resolve,reject)=>{const img=new Image();img.onload=resolve;img.onerror=reject;img.src=`./assets/props-v2/${id}.png`;}))]).then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    Promise.all([world.ready,document.fonts.load('20px InkBrush'),document.fonts.load('20px InkCalligraphy'),...['hat','scroll','decree','map','farewell'].map(id=>new Promise((resolve,reject)=>{const img=new Image();img.onload=resolve;img.onerror=reject;img.src=`./assets/props-v2/${id}.png`;}))]).then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
       state.ready = true; $('start').disabled = false; $('start-label').textContent = '步入江雪'; $('load-status').textContent = '';
     }))).catch(error => {
       console.error('水墨素材載入失敗', error);
       $('load-status').textContent = '水墨素材未能載入，請重新整理再試。';
     });
-    window.__JIANGXUE__ = Object.freeze({ inspectGuideRoutes:()=>world.bird.inspectRoutes(), getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type,targetId:state.target?.id,targetLabel:state.target?.label, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.(),journey:world.journey.getState(),bird:world.bird.getState() }) });
+    window.__JIANGXUE__ = Object.freeze({ inspectGuideRoutes:()=>world.trail.inspectRoutes(), getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type,targetId:state.target?.id,targetLabel:state.target?.label, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.(),journey:world.journey.getState(),trail:world.trail.getState() }) });
   } catch (error) {
     console.error('江雪世界載入失敗', error);
     $('start-label').textContent = '重新載入'; $('start').disabled = false;
@@ -481,6 +488,7 @@ async function init() {
   }
 }
 
+$('interact').addEventListener('click', interact);
 $('open-luggage').addEventListener('click',openLuggage);
 $('close-luggage').addEventListener('click',closeLuggage);
 $('story-continue').addEventListener('click',closeStory);
@@ -500,10 +508,9 @@ $('sound').addEventListener('click', async () => { state.muted = !state.muted; i
 window.addEventListener('keydown', event => {
   if (event.code === 'Escape' && isPlaying()) { event.preventDefault(); openMenu(); return; }
   if (!isPlaying() || event.target.closest('dialog,input,textarea')) return;
-  if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyE','KeyC'].includes(event.code) || (event.code === 'Space' && !event.target.closest('button'))) event.preventDefault();
+  if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyE'].includes(event.code) || (event.code === 'Space' && !event.target.closest('button'))) event.preventDefault();
   keys.add(event.code);
   if (!event.repeat && event.code === 'KeyE') interact();
-  if (!event.repeat && event.code === 'KeyC') call();
 });
 window.addEventListener('keyup', event => keys.delete(event.code));
 window.addEventListener('blur', clearInput);

@@ -1,7 +1,8 @@
+@font-face{font-family:InkCalligraphy;src:url('./assets/fonts/Free-HK-Kai_4700-v1.02.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
 @font-face{font-family:InkBrush;src:url('./assets/fonts/LXGWWenKaiTC-Regular.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
 :root{color-scheme:light;--ink:#414b46;--soft:#6f7971;--paper:#f1f2ed;--line:#59685b33}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
-body,button{font-family:InkBrush,'Kaiti TC',serif;font-weight:400;-webkit-font-smoothing:antialiased}
+body,button{font-family:InkCalligraphy,InkBrush,'Kaiti TC',serif;font-weight:400;-webkit-font-smoothing:antialiased}
 button{font-size:inherit;color:inherit;cursor:pointer;border:0;background:transparent;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 button:disabled{cursor:wait;opacity:.6}button:focus-visible,a:focus-visible{outline:2px solid #60766d;outline-offset:5px}
 [hidden]{display:none!important}#experience,#world{position:absolute;inset:0;width:100%;height:100%;height:100svh}
@@ -23,7 +24,7 @@ h1{font-size:clamp(80px,9.4vw,142px);font-weight:400;letter-spacing:.16em;line-h
 .intro-foot{position:absolute;bottom:30px;left:38px;right:38px;display:flex;justify-content:space-between;font-size:12px;letter-spacing:.16em;color:var(--soft)}
 #load-status{font-size:13px;max-width:280px;letter-spacing:.06em;line-height:1.7;margin-top:12px;min-height:17px}#load-status:empty{visibility:hidden}
 #intro.departing{opacity:0;pointer-events:none}#mist-transition{position:absolute;inset:0;background:#f0f0ec;z-index:15;pointer-events:none;opacity:0}#mist-transition.flow{animation:mist-crossing 2.8s ease-in-out both}
-/* The world has exactly two visible controls. Their hit areas remain comfortable on tablets. */
+/* Two quiet settings remain above the world; an action appears beside the nearby object. */
 #hud{position:absolute;inset:0;z-index:4;pointer-events:none;animation:fade-in 1.2s ease both}
 .topbar{position:absolute;top:max(22px,env(safe-area-inset-top));right:max(26px,env(safe-area-inset-right));display:flex;justify-content:flex-end}
 .topbar nav{display:flex;align-items:center;gap:17px;pointer-events:auto}
@@ -32,6 +33,10 @@ h1{font-size:clamp(80px,9.4vw,142px);font-weight:400;letter-spacing:.16em;line-h
 .icon-button svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}
 .sound-waves{display:none}#sound[aria-pressed=true] .sound-waves{display:block}#sound[aria-pressed=true] .sound-mute{display:none}
 .count-button{min-width:60px;min-height:44px;padding:0 4px;border-radius:46% 49% 53% 48%;font-size:27px;letter-spacing:.03em;font-variant-numeric:tabular-nums;text-shadow:0 1px 9px #f4f4ef99}
+.interaction-prompt{position:absolute;transform:translate(-50%,0);pointer-events:auto;display:flex;align-items:center;justify-content:center;gap:18px;min-height:52px;max-width:calc(100vw - 32px);padding:12px 23px 14px;font-size:22px;letter-spacing:.08em;white-space:nowrap;isolation:isolate;color:#35473c;text-shadow:0 1px 2px #fff9}
+.interaction-prompt:before{content:'';position:absolute;inset:-7px -12px;z-index:-1;background:url('./assets/xuan-paper-panel-v2.png') center/100% 100% no-repeat;opacity:.93;filter:drop-shadow(0 2px 4px #34423816)}
+.interaction-prompt:after{content:'';position:absolute;left:24px;right:24px;bottom:5px;height:2px;background:linear-gradient(90deg,transparent,#53634b99 20%,#53634b99 80%,transparent);transform:rotate(-.6deg)}
+.interaction-prompt kbd{font-size:15px;opacity:.62;letter-spacing:0}.interaction-prompt:hover{color:#172f20}.interaction-prompt:disabled{cursor:wait;opacity:.75}
 /* The generated blank sheet supplies paper fibres and deckled alpha edges; DOM text remains selectable. */
 dialog{padding:0;border:0;background:transparent;color:var(--ink);max-width:calc(100vw - 24px);max-height:calc(100svh - 24px);overflow:auto;overscroll-behavior:contain}
 dialog::backdrop{background:#e3e7e124;backdrop-filter:blur(2px)}
@@ -71,6 +76,7 @@ dialog::backdrop{background:#e3e7e124;backdrop-filter:blur(2px)}
 @keyframes mist-crossing{0%{opacity:0}38%,53%{opacity:.98}100%{opacity:0}}
 @keyframes fade-in{from{opacity:0}to{opacity:1}}
 @media(max-width:650px){
+ .interaction-prompt{font-size:19px;gap:14px;min-height:48px;padding:10px 19px 12px}
  .intro-copy{left:9%;top:17%;padding-right:10px}.intro-art{object-position:48% center}.intro-copy:before{inset:-30px -30px -40px -30px}
  h1{font-size:91px}.intro-subtitle{font-size:17px;letter-spacing:.14em;margin-bottom:18px}.intro-premise{font-size:14px;line-height:1.9;margin-bottom:20px}.eyebrow{font-size:12px}
  .intro-foot{left:23px;right:23px;bottom:24px;font-size:11px;letter-spacing:.10em}.topbar{right:17px;top:max(17px,env(safe-area-inset-top))}.topbar nav{gap:10px}.count-button{font-size:25px}.icon-button svg{width:23px;height:23px}
@@ -85,5 +91,7 @@ dialog::backdrop{background:#e3e7e124;backdrop-filter:blur(2px)}
  .ending-copy h2{font-size:30px;margin-bottom:9px}.farewell-words{font-size:17px;margin:10px 0}.ending-afterword{margin:13px 0}.ending-poem{font-size:17px;margin:12px 0}
 }
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
-.story-sheet h2{-webkit-text-stroke:.48px currentColor}.paper-action:focus-visible{outline:none}.paper-action:focus-visible:after{height:7px;opacity:1;background:#354b3d}
+.paper-action:focus-visible{outline:none}.paper-action:focus-visible:after{height:7px;opacity:1;background:#354b3d}
 @media(max-width:650px){#story-title[data-long=true]{font-size:34px;letter-spacing:.11em}}
+
+.story-copy,.story-detail,.menu-description,.luggage-instruction,.fiction-note{font-family:InkBrush,InkCalligraphy,serif}

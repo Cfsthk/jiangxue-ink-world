@@ -1,10 +1,10 @@
 import * as THREE from './vendor/three.module.js';
-import { LUGGAGE, createJourneyState } from './journey-state.js?v=1.0.0';
-import { makeJourneyPalette, buildWagon, buildLuggage, buildDeadBranch } from './journey-props.js?v=1.0.0';
-import { paintDiagnostics } from './painted-rig.js?v=1.0.0';
-import { buildWinterPlant, BrushBatch, tube } from './props.js?v=1.0.0';
-export const WAGON_SITE=Object.freeze({x:-27,z:62,yaw:0});
-export const JOURNEY_SPAWN=Object.freeze({x:-27,z:54.5,yaw:Math.PI,pitch:-.025});
+import { LUGGAGE, createJourneyState } from './journey-state.js?v=1.1.0';
+import { makeJourneyPalette, buildWagon, buildLuggage, buildDeadBranch } from './journey-props.js?v=1.1.0';
+import { paintDiagnostics } from './painted-rig.js?v=1.1.0';
+import { buildWinterPlant, BrushBatch, tube } from './props.js?v=1.1.0';
+export const WAGON_SITE=Object.freeze({x:-27.8,z:62,yaw:0});
+export const JOURNEY_SPAWN=Object.freeze({x:-27.8,z:54.5,yaw:Math.PI,pitch:-.025});
 const ease=t=>t*t*(3-2*t);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
@@ -28,14 +28,15 @@ export function createJourney({scene,palette,heightAt,collisions}) {
   scene.add(wagon.rig);contactWash(scene,WAGON_SITE.x,WAGON_SITE.z,1.6,2.1,heightAt);contactWash(scene,WAGON_SITE.x,WAGON_SITE.z+4.9,.9,1.4,heightAt);
   for(const [dz,r] of [[-1.05,1.77],[.6,1.78],[2,1.7],[4.5,.72],[5.8,.64]])collisions.push({x:WAGON_SITE.x,z:WAGON_SITE.z+dz,r});
   const depositPosition=new THREE.Vector3(WAGON_SITE.x,heightAt(WAGON_SITE.x,WAGON_SITE.z-3),WAGON_SITE.z-3);
-  const wagonPerch=new THREE.Object3D();wagonPerch.name='墨鳥停棲・車後立柱';wagonPerch.position.set(1.06,2.025,-1.40);wagon.body.add(wagonPerch);
   const cargo=new THREE.Group();wagon.body.add(cargo);
   const carryRoot=new THREE.Group();carryRoot.name='手中行李・一次一件';scene.add(carryRoot);
   let working=null,elapsed=0,lastCompleted=null;
 
   LUGGAGE.forEach((data,index)=>{
     const root=new THREE.Group();root.name=`尋物地點・${data.name}`;root.position.set(data.x,heightAt(data.x,data.z),data.z);scene.add(root);
-    const item=buildLuggage(data.id,p);item.rotation.y=index*.52+.2;root.add(item);
+    const item=new THREE.Group(),model=buildLuggage(data.id,p);
+    // Keep reveal, carry and cargo transforms outside the true-to-scale painted model.
+    model.scale.setScalar(data.id==='hat'?.80:.84);item.add(model);item.rotation.y=index*.52+.2;root.add(item);
     const cover=new THREE.Group();root.add(cover);
     const coverBase=new THREE.Vector3(),itemBase=new THREE.Vector3();
     if(data.id==='hat'){
@@ -81,27 +82,18 @@ export function createJourney({scene,palette,heightAt,collisions}) {
     }
     const coverRotation=cover.rotation.clone();
     coverBase.copy(cover.position);itemBase.copy(item.position);
-    const perch=new THREE.Object3D();perch.name=`墨鳥停棲・${data.name}`;
-    let perchParent=root;
-    if(data.id==='hat'){perch.position.set(-.184,2.40,-.835);perchParent=cover;}
-    else if(data.id==='scroll')perch.position.set(.68,.39,-.12);
-    else if(data.id==='map'){perch.position.set(.72,.32,.32);perchParent=cover;}
-    else {
-      const twig=buildDeadBranch(p);twig.position.set(-.83,.015,-.45);twig.scale.setScalar(.63);root.add(twig);perch.position.set(-.83+.72*.63,.015+.32*.63,-.45+.32*.63);
-    }
-    perchParent.add(perch);
     contactWash(scene,data.x,data.z,.88,.77,heightAt);
-    sites.set(data.id,{data,root,item,cover,coverBase,coverRotation,itemBase,perch,itemRotation:item.rotation.clone(),itemScale:item.scale.clone()});
+    sites.set(data.id,{data,root,item,cover,coverBase,coverRotation,itemBase,itemRotation:item.rotation.clone(),itemScale:item.scale.clone()});
   });
 
   function candidate(player) {
     const returnDistance=Math.hypot(player.x-depositPosition.x,player.z-depositPosition.z);
-    if(returnDistance<3.0&&Math.abs(player.y-1.65-depositPosition.y)<3.2)return {type:'wagon',root:wagon.rig,position:depositPosition,radius:3,label:state.carried?`放回${LUGGAGE.find(i=>i.id===state.carried).name}`:'查看車上行李'};
+    if(returnDistance<3.0&&Math.abs(player.y-1.65-depositPosition.y)<3.2)return {type:'wagon',root:wagon.rig,position:depositPosition,promptPosition:wagon.rig.position.clone().add(new THREE.Vector3(0,1.55,-1.65)),radius:3,label:state.carried?`放回${LUGGAGE.find(i=>i.id===state.carried).name}`:'查看車上行李'};
     let best=null,distance=Infinity;
     for(const site of sites.values()){
       const {data}=site,s=state.status(data.id);if(s==='returned'||s==='carried'||!state.unlocked(data.id))continue;
       const d=Math.hypot(player.x-data.x,player.z-data.z),dy=Math.abs(player.y-1.65-site.root.position.y);
-      if(d<2.8&&dy<3.5&&d<distance){distance=d;best={type:'luggage',id:data.id,root:site.root,position:site.root.position,radius:2.8,label:state.carried?'先把手中行李送回馬車':s==='ready'?`拾起${data.name}`:s==='working'?'正在移開遮擋物…':data.action};}
+      if(d<2.8&&dy<3.5&&d<distance){distance=d;best={type:'luggage',id:data.id,root:site.root,position:site.root.position,promptPosition:site.root.position.clone().add(new THREE.Vector3(0,data.id==='hat'&&s==='covered'?1.65:.65,0)),busy:s==='working',radius:2.8,label:state.carried?'先把手中行李送回馬車':s==='ready'?`拾起${data.name}`:s==='working'?'正在移開遮擋物…':data.action};}
     }
     return best;
   }
@@ -166,12 +158,7 @@ export function createJourney({scene,palette,heightAt,collisions}) {
       if(site.data.id==='decree'){const snow=site.cover.children[0],v=snow.geometry.attributes.position;for(let i=0;i<v.count;i++)v.setY(i,snow.userData.digBase[i]+snow.userData.digDrift[i]);v.needsUpdate=true;snow.geometry.computeVertexNormals();snow.material.uniforms.uDigRemaining.value=1;}
     }
   }
-  function birdDestination(){
-    const id=state.carried?null:state.activeId;
-    const site=id?sites.get(id):null,anchor=site?site.perch:wagonPerch;
-    return {key:state.complete?'finished':site?`item:${id}`:'wagon',id,position:anchor.getWorldPosition(new THREE.Vector3()),ground:site?{x:site.data.x,z:site.data.z}:{x:depositPosition.x,z:depositPosition.z},yaw:site?.7:Math.PI};
-  }
-  return {candidate,act,update,reset,birdDestination,ready:wagon.ready,focusPoint:()=>working?sites.get(working).item.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0,.18,0)):null,items:LUGGAGE,wagon,spawn:JOURNEY_SPAWN,depositPosition,
-    getState:()=>({...state.snapshot(),working,progress:working?clamp(elapsed/sites.get(working).data.duration,0,1):0,lastCompleted,art:{wagon:paintDiagnostics(wagon.body),horse:paintDiagnostics(wagon.horse),items:[...sites.values()].map(s=>({id:s.data.id,...paintDiagnostics(s.item)}))},wagon:{x:WAGON_SITE.x,z:WAGON_SITE.z,facing:'+z',returnX:depositPosition.x,returnZ:depositPosition.z}}),
+  return {candidate,act,update,reset,ready:wagon.ready,focusPoint:()=>working?sites.get(working).item.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0,.18,0)):null,items:LUGGAGE,wagon,spawn:JOURNEY_SPAWN,depositPosition,
+    getState:()=>({...state.snapshot(),working,progress:working?clamp(elapsed/sites.get(working).data.duration,0,1):0,lastCompleted,art:{wagon:paintDiagnostics(wagon.body),horse:paintDiagnostics(wagon.horse),items:[...sites.values()].map(s=>({id:s.data.id,modelScale:s.item.children[0].scale.x,...paintDiagnostics(s.item)}))},wagon:{x:WAGON_SITE.x,z:WAGON_SITE.z,facing:'+z',returnX:depositPosition.x,returnZ:depositPosition.z}}),
   };
 }

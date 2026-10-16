@@ -74,7 +74,7 @@ export function createRigPaint(){
     cloth:material('車篷與卷筒・亞麻纖維',[2,1],'#929b90',.47,0,[1.3,1.1],THREE.DoubleSide),
     hat:material('官帽・折布墨紋',[0,0],'#34423b',.88,0,[1,1],THREE.DoubleSide),
     paper:material('文書・宣紙纖維',[1,0],'#9aa799',.38,0,[1,1],THREE.DoubleSide),
-    stroke:material('墨鳥與鬃毛・飛白',[2,0],'#253b31',1.1,2,[1,1],THREE.DoubleSide),
+    stroke:material('鬃毛與繫帶・飛白',[2,0],'#253b31',1.1,2,[1,1],THREE.DoubleSide),
     ready,
   };
 }

@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.module.js';
-import { BrushBatch, tube, timberBox } from './props.js?v=1.0.0';
-import { createRigPaint, addRigBleed } from './painted-rig.js?v=1.0.0';
+import { BrushBatch, tube, timberBox } from './props.js?v=1.1.0';
+import { createRigPaint, addRigBleed } from './painted-rig.js?v=1.1.0';
 const TAU=Math.PI*2;
 
 function softBox(w,h,d,seed=1) {
@@ -186,14 +186,14 @@ function paperSurface(p,id) {
   const canvas=document.createElement('canvas');canvas.width=768;canvas.height=id==='map'?512:1024;const ctx=canvas.getContext('2d');
   ctx.fillStyle='#eeefea';ctx.fillRect(0,0,768,canvas.height);
   for(let i=0;i<7600;i++){const x=(Math.sin(i*71.3)*.5+.5)*768,y=(Math.sin(i*31.7)*.5+.5)*canvas.height;ctx.fillStyle=`rgba(65,76,70,${.01+(i%5)*.006})`;ctx.fillRect(x,y,1+i%4,.6);}
-  ctx.strokeStyle='rgba(65,77,70,.52)';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.fillStyle='#535f56';ctx.font='40px InkBrush,"Kaiti TC",serif';
+  ctx.strokeStyle='rgba(65,77,70,.52)';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.fillStyle='#535f56';ctx.font='40px InkCalligraphy,InkBrush,"Kaiti TC",serif';
   if(id==='map'){
     for(const [x,y] of [[145,140],[260,245],[480,120],[600,300]]){ctx.beginPath();ctx.moveTo(x-50,y+30);ctx.quadraticCurveTo(x-15,y-25,x,y-35);ctx.quadraticCurveTo(x+20,y+15,x+60,y+30);ctx.stroke();}
     ctx.beginPath();ctx.moveTo(160,70);ctx.bezierCurveTo(300,110,280,310,490,420);ctx.stroke();ctx.beginPath();ctx.moveTo(470,320);ctx.quadraticCurveTo(520,380,675,425);ctx.stroke();ctx.fillText('長安',45,70);ctx.fillText('邵州',365,440);ctx.fillText('永州',610,485);ctx.beginPath();ctx.moveTo(360,380);ctx.lineTo(460,435);ctx.moveTo(455,380);ctx.lineTo(370,435);ctx.stroke();
   }else if(id==='farewell'){
-    ctx.font='100px InkBrush,"Kaiti TC",serif';ctx.fillText('珍',590,175);ctx.fillText('重',590,300);ctx.font='35px InkBrush,"Kaiti TC",serif';
+    ctx.font='100px InkCalligraphy,InkBrush,"Kaiti TC",serif';ctx.fillText('珍',590,175);ctx.fillText('重',590,300);ctx.font='35px InkCalligraphy,InkBrush,"Kaiti TC",serif';
     for(let c=0;c<3;c++)for(let r=0;r<5;r++)ctx.fillText('故人遠行山水長'[(c*5+r)%7],465-c*83,190+r*91);
-  }else{ctx.font='30px InkBrush,"Kaiti TC",serif';for(let c=0;c<6;c++)for(let r=0;r<8;r++)ctx.fillText('永州司馬遠行'[(c*8+r)%6],650-c*85,120+r*100);}
+  }else{ctx.font='30px InkCalligraphy,InkBrush,"Kaiti TC",serif';for(let c=0;c<6;c++)for(let r=0;r<8;r++)ctx.fillText('永州司馬遠行'[(c*8+r)%6],650-c*85,120+r*100);}
   const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=8;
   const m=p.rigPaint.paper.clone();m.uniforms.uAtlas=p.rigPaint.paper.uniforms.uAtlas;
   // The paper skin and its handwritten face both remain UV mapped to the folded sheet.

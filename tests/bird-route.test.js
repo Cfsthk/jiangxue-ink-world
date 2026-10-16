@@ -27,3 +27,13 @@ test('route interpolation preserves waiting distance across turns and endpoints'
   assert.deepEqual(pointOnRoute(route,50),{x:10,z:10});assert.equal(pointOnRoute([],1),null);
   assert.deepEqual(nearestRouteDistance(route,{x:4,z:12}),{along:14,distance:2});
 });
+test('ground ink marks stay with a curved road instead of cutting across its snowy inside',()=>{
+  const roads=Array.from({length:101},(_,i)=>{const t=i/100;return {x:3+14*t,z:3+5*Math.sin(Math.PI*t)};});
+  const p=createBirdRoute({canWalk:()=>true,heightAt:()=>0,bounds,roads,step:1,roadBias:8,roadMargin:.65});
+  const route=p.find({x:3,z:3},{x:17,z:3});
+  assert.ok(route.some(point=>point.z>7));
+  for(const point of route){
+    const roadDistance=Math.min(...roads.map(sample=>Math.hypot(point.x-sample.x,point.z-sample.z)));
+    assert.ok(roadDistance<1.35,`ink mark left painted road by ${roadDistance.toFixed(2)} m`);
+  }
+});

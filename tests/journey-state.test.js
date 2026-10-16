@@ -6,7 +6,7 @@ test('exactly five keepsakes remain, with the farewell letter last',()=>assert.d
 test('one carried item prevents a second pickup or environment task',()=>{const s=createJourneyState();take(s,'hat');assert.equal(s.begin('scroll'),false);assert.equal(s.pickup('scroll'),false);assert.equal(s.carried,'hat');assert.equal(s.returned,0);});
 test('farewell stays locked while the fourth item is still carried',()=>{const s=createJourneyState();for(const i of LUGGAGE.slice(0,3)){take(s,i.id);s.deposit();}take(s,'map');assert.equal(s.unlocked('farewell'),false);assert.equal(s.begin('farewell'),false);s.deposit();assert.equal(s.unlocked('farewell'),true);});
 test('the story becomes readable at pickup, before the return',()=>{const s=createJourneyState();s.begin('hat');s.reveal('hat');assert.deepEqual(s.snapshot().storiesRead,[]);s.pickup('hat');assert.deepEqual(s.snapshot().storiesRead,['hat']);assert.equal(s.returned,0);s.deposit();assert.deepEqual(s.snapshot().storiesRead,['hat']);});
-test('bird sequence advances only after a return; completion requires the last return',()=>{
+test('guide sequence advances only after a return; completion requires the last return',()=>{
  const s=createJourneyState();
  for(let index=0;index<LUGGAGE.length;index++){
   const id=LUGGAGE[index].id;assert.equal(s.activeId,id);

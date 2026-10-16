@@ -7,14 +7,14 @@ class MinHeap {
   get length(){return this.items.length;}
 }
 
-export function createBirdRoute({canWalk,heightAt,roads=[],bounds={minX:-72,maxX:-2,minZ:-72,maxZ:68},step=2}){
+export function createBirdRoute({canWalk,heightAt,roads=[],bounds={minX:-72,maxX:-2,minZ:-72,maxZ:68},step=2,roadBias=1,roadMargin=1.3}){
   const nx=Math.floor((bounds.maxX-bounds.minX)/step)+1,nz=Math.floor((bounds.maxZ-bounds.minZ)/step)+1;
   const nodes=Array.from({length:nx*nz},(_,id)=>{
     const x=bounds.minX+(id%nx)*step,z=bounds.minZ+Math.floor(id/nx)*step;
     if(!canWalk(x,z))return null;
     let road2=Infinity;
     for(const p of roads)road2=Math.min(road2,(p.x-x)**2+(p.z-z)**2);
-    return {id,x,z,y:heightAt(x,z),cost:1+Math.min(2.2,Math.max(0,Math.sqrt(road2)-1.3)*.28),links:[]};
+    return {id,x,z,y:heightAt(x,z),cost:1+Math.min(2.2,Math.max(0,Math.sqrt(road2)-roadMargin)*.28)*roadBias,links:[]};
   });
   function clear(a,b){
     const distance=Math.hypot(a.x-b.x,a.z-b.z),n=Math.max(1,Math.ceil(distance/.45));

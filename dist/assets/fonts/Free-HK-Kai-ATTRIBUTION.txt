@@ -1,0 +1,24 @@
+Free HK Kai / 自由香港楷書 — version 1.02
+
+Copyright / attribution: 自由香港字型 (Free HK Fonts) and the contributors
+listed in Free-HK-Kai-NOTICE.txt. Derived from Taiwan CNS11643 全字庫正楷體.
+
+License: Creative Commons Attribution 4.0 International (CC BY 4.0).
+See Free-HK-Kai-CC-BY-4.0.txt and the original Free-HK-Kai-NOTICE.txt.
+License URL: https://creativecommons.org/licenses/by/4.0/
+
+Project: https://freehkfonts.opensource.hk/
+Official release page: https://freehkfonts.opensource.hk/download/
+Official font download:
+https://freehkfonts.opensource.hk/fonts/Free-HK-Kai_4700-v1.02.ttf
+Original notice and license:
+https://github.com/freehkfonts/freehkkai/tree/download
+
+Downloaded 2026-10-16. The font binary is redistributed without modification.
+SHA-256: b83308bfe4772b5c02fb5364cafbcf25288e5904416229c3145e3b4c43dd5a54
+
+Use in this game: calligraphy headings, action labels, and 3D paper lettering.
+LXGW WenKai TC remains the readable text face and fallback for rare characters.
+The font follows Hong Kong primary-school character forms for its 4,762 revised
+characters. The complete binary contains additional original CNS Kai glyphs.
+The game is an independent educational work; no endorsement is implied.
