@@ -1,5 +1,5 @@
 import * as THREE from './vendor/three.module.js';
-import { farBankGLSL } from './landscape-shape.js?v=1.3.0';
+import { farBankGLSL } from './landscape-shape.js?v=1.4.0';
 
 /**
  * Sparse, gently advecting ink ripples. The water plane is never displaced, so

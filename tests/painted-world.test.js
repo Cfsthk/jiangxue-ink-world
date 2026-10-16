@@ -1,15 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {nearBank,farBank,passWall,conformRockSurface} from '../dist/landscape-shape.js';
+import {nearBank,farBank,OUTWARD_PASS,passWall,conformRockSurface} from '../dist/landscape-shape.js';
+import {WAGON_SITE} from '../dist/journey.js';
 test('curved banks leave a continuous river and all shore missions on land',()=>{
  let min=Infinity,max=-Infinity;
  for(let z=-86;z<=86;z+=.25){const x=nearBank(z);min=Math.min(min,x);max=Math.max(max,x);assert.ok(farBank(z)-x>40);assert.ok(Math.abs(nearBank(z+.01)-x)<.006);}
  assert.ok(max-min>11);assert.ok(-5.7<nearBank(-25.5)-1.25);assert.ok(-4<nearBank(-24)-1.25);assert.ok(-11<nearBank(35)-1.25);
 });
 test('cliffs bound the cart-centred outward road, while the approach remains open',()=>{
- assert.equal(passWall(-28.6,64),false);assert.equal(passWall(-30.3,64),true);assert.equal(passWall(-26.9,64),true);assert.equal(passWall(-30,58),false);
- for(const offset of [-1.5,0,1.5])assert.equal(passWall(-28.6+offset,64),false);
+ assert.equal(WAGON_SITE.x,OUTWARD_PASS.x);assert.equal(WAGON_SITE.z,OUTWARD_PASS.z);
+ assert.equal(passWall(-27.8,64),false);assert.equal(passWall(-29.5,64),true);assert.equal(passWall(-26.1,64),true);assert.equal(passWall(-30,58),false);
+ for(const offset of [-1.5,0,1.5])assert.equal(passWall(WAGON_SITE.x+offset,64),false);
 });
 test('rotated stretched low rocks follow the hillside across their whole footprint',()=>{
  const original=new Float32Array([-1,.08,0,1,.08,0,0,-.02,-1,0,.22,1]);

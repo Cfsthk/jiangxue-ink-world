@@ -1,13 +1,13 @@
 import * as THREE from './vendor/three.module.js';
-import { createBrushMaterials } from './ink-materials.js?v=1.3.0';
-import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=1.3.0';
-import { createRiverMaterial } from './river.js?v=1.3.0';
-import { createMountainSurround } from './mountains.js?v=1.3.0';
-import { createAmbience } from './ambience.js?v=1.3.0';
-import { createJourney, WAGON_SITE, JOURNEY_SPAWN } from './journey.js?v=1.3.0';
-import { createInkTrail } from './ink-trail.js?v=1.3.0';
-import { nearBank as bank, farBank as farBankAt, passWall, conformRockSurface } from './landscape-shape.js?v=1.3.0';
-import { LUGGAGE } from './journey-state.js?v=1.3.0';
+import { createBrushMaterials } from './ink-materials.js?v=1.4.0';
+import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=1.4.0';
+import { createRiverMaterial } from './river.js?v=1.4.0';
+import { createMountainSurround } from './mountains.js?v=1.4.0';
+import { createAmbience } from './ambience.js?v=1.4.0';
+import { createJourney, WAGON_SITE, JOURNEY_SPAWN } from './journey.js?v=1.4.0';
+import { createInkTrail } from './ink-trail.js?v=1.4.0';
+import { nearBank as bank, farBank as farBankAt, passWall, conformRockSurface } from './landscape-shape.js?v=1.4.0';
+import { LUGGAGE } from './journey-state.js?v=1.4.0';
 
 // Walkable terrain, weathered stone, pines and the boat are real 3D.
 // Chinese brush pigments wrap their surfaces; distant paintings complete the view.
@@ -270,7 +270,7 @@ export function createWorld() {
 
   // The outward road shares the same irregular brush edges and ground texture.
   const beforeExitRoad=randomSeed;
-  makePath([[-22,32],[-24,43],[-28.6,54],[-28.6,67],[-30,84]],3.5);
+  makePath([[-22,32],[-24,43],[WAGON_SITE.x,54],[WAGON_SITE.x,67],[-30,84]],3.5);
   randomSeed=beforeExitRoad;
 
   // Dilute, irregular contact washes sit on the actual snow surface.
@@ -443,7 +443,7 @@ export function createWorld() {
 
   // Broad continuous snow-rock skins frame the road at its tip. The cart blocks the gap.
   for(const side of [-1,1]){
-    const cliff=addRock(-27.8+side*10.55,66,8.65,21.0,cliffMaterial,true,false,true);
+    const cliff=addRock(WAGON_SITE.x+side*10.55,66,8.65,21.0,cliffMaterial,true,false,true);
     cliff.scale.z=1.35;cliff.rotation.y=side*.10;
   }
   const journey=createJourney({scene,palette,heightAt,collisions});

@@ -1,9 +1,10 @@
 import * as THREE from './vendor/three.module.js';
-import { LUGGAGE, createJourneyState } from './journey-state.js?v=1.3.0';
-import { makeJourneyPalette, buildWagon, buildLuggage, buildDeadBranch } from './journey-props.js?v=1.3.0';
-import { paintDiagnostics } from './painted-rig.js?v=1.3.0';
-import { buildWinterPlant, BrushBatch, tube } from './props.js?v=1.3.0';
-export const WAGON_SITE=Object.freeze({x:-28.6,z:62,yaw:0});
+import { LUGGAGE, createJourneyState } from './journey-state.js?v=1.4.0';
+import { makeJourneyPalette, buildWagon, buildLuggage, buildDeadBranch } from './journey-props.js?v=1.4.0';
+import { paintDiagnostics } from './painted-rig.js?v=1.4.0';
+import { buildWinterPlant, BrushBatch, tube } from './props.js?v=1.4.0';
+import { OUTWARD_PASS } from './landscape-shape.js?v=1.4.0';
+export const WAGON_SITE=Object.freeze({x:OUTWARD_PASS.x,z:OUTWARD_PASS.z,yaw:0});
 export const JOURNEY_SPAWN=Object.freeze({x:-27.8,z:54.5,yaw:Math.PI,pitch:-.025});
 const ease=t=>t*t*(3-2*t);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));

@@ -1,15 +1,14 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=1.3.0';
-import { Soundscape } from './audio.js?v=1.3.0';
-import { InkWash } from './wash.js?v=1.3.0';
-import { createGroundSnow } from './ground-snow.js?v=1.3.0';
+import { createWorld } from './world.js?v=1.4.0';
+import { Soundscape } from './audio.js?v=1.4.0';
+import { InkWash } from './wash.js?v=1.4.0';
+import { createGroundSnow } from './ground-snow.js?v=1.4.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
 const chineseCounts=['零','一','二','三','四','五'];
 const intro = $('intro');
 const menu = $('menu');
-const referenceDialog = $('reference-dialog');
 const storyDialog = $('story-dialog'), luggageDialog = $('luggage-dialog');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const keys = new Set();
@@ -24,6 +23,7 @@ let lastTime = performance.now(), footDistance = 0, lastPlayer = null, feedbackT
 let shelter = 0;
 let drag = null, focusUntil = 0, frameSamples = 0, fpsTime = 0;
 let nextFoot = 1, snowCount = 0, powderDiagnostics = null;
+let entryRemaining = 0;
 const footprints = [], effects = [];
 const effectRoot = new THREE.Group();
 
@@ -33,6 +33,11 @@ function notify(text, duration = 3500) {
   $('feedback').textContent = text;
   $('feedback').classList.add('visible');
   feedbackTimer = setTimeout(() => $('feedback').classList.remove('visible'), duration);
+}
+
+function hideEntryInstruction() {
+  entryRemaining = 0;
+  $('entry-instruction').hidden = true;
 }
 
 function clearInput() {
@@ -56,7 +61,6 @@ function openMenu() {
   clearInput();
   state.paused = true;
   $('resume').textContent = state.started ? '繼續漫遊 ↗' : '返回畫面 ↗';
-  $('restart').hidden = !state.started;
   if (!menu.open) menu.showModal();
   syncSound();
 }
@@ -70,6 +74,7 @@ function closeMenu() {
 }
 
 function restart() {
+  hideEntryInstruction();
   storyFromLuggage=false;
   world.journey.reset();
   if(storyDialog.open)storyDialog.close();
@@ -112,7 +117,9 @@ async function start() {
   setTimeout(() => {
     state.entering = false;
     syncJourneyHUD();
-    notify('沿路墨點通往行李。走近後，點選按鈕或按 E。',6500);
+    entryRemaining = 12;
+    $('entry-instruction').style.opacity = '1';
+    $('entry-instruction').hidden = false;
     canvas.focus({ preventScroll: true });
   }, reducedMotion ? 70 : 2800);
 }
@@ -120,10 +127,12 @@ async function start() {
 function storyArt(id){return `<img src="./assets/props-v2/${id}.png" alt="" width="600" height="380">`;}
 function syncJourneyHUD(){
   if(!world)return;
-  const j=world.journey.getState();$('luggage-count').textContent=`${chineseCounts[j.collected]}／五`;
-  $('open-luggage').setAttribute('aria-label',`查看行李與已讀往事，已尋回${chineseCounts[j.collected]}件，共五件`);
+  const j=world.journey.getState();
+  $('luggage-count').querySelectorAll('.luggage-dot').forEach((dot,index)=>{dot.hidden=index<j.collected;});
+  $('open-luggage').setAttribute('aria-label',`查看行李與已讀往事，還有${chineseCounts[5-j.collected]}件待尋回`);
 }
 function showStory(item,fromLuggage=false){
+  hideEntryInstruction();
   storyFromLuggage=fromLuggage;
   clearInput();state.paused=true;state.target=null;
   $('story-year').textContent=item.title;$('story-title').textContent=item.name;$('story-title').dataset.long=String(item.name.length>5);$('story-text').textContent=item.text;$('story-detail').textContent=item.detail;$('story-art').innerHTML=storyArt(item.id);
@@ -137,6 +146,7 @@ function closeStory(){
 }
 function openLuggage(){
   if(!world||!state.started||state.entering)return;
+  hideEntryInstruction();
   clearInput();state.paused=true;syncSound();
   const j=world.journey.getState();
   $('luggage-title').textContent=j.complete?'查看馬車':'行李';
@@ -426,7 +436,14 @@ async function init() {
       const dt = Math.min(.04, elapsed); lastTime = now;
       if (!state.paused && !document.hidden) {
         state.time += dt;
-        if (isPlaying()) move(dt);
+        if (isPlaying()) {
+          move(dt);
+          if(entryRemaining>0){
+            entryRemaining=Math.max(0,entryRemaining-dt);
+            $('entry-instruction').style.opacity=String(Math.min(1,entryRemaining/.9));
+            if(entryRemaining===0)hideEntryInstruction();
+          }
+        }
         world.journey.update(dt,state.time,player);
         world.trail.update(dt,state.time,player,isPlaying());
         const workingFocus=world.journey.focusPoint();
@@ -474,10 +491,7 @@ $('luggage-list').addEventListener('click',event=>{const id=event.target.closest
 $('start').addEventListener('click', start);
 $('close-menu').addEventListener('click', closeMenu);
 $('resume').addEventListener('click', closeMenu);
-$('restart').addEventListener('click', restart);
 menu.addEventListener('cancel', event => { event.preventDefault(); closeMenu(); });
-$('reference').addEventListener('click', () => referenceDialog.showModal());
-$('close-reference').addEventListener('click', () => referenceDialog.close());
 $('sound').addEventListener('click', async () => { state.muted = !state.muted; if (!state.muted) { try { await sound.start(); } catch { state.muted = true; notify('這個瀏覽器暫未能播放聲音。'); } } syncSound(); });
 window.addEventListener('keydown', event => {
   if (event.code === 'Escape' && isPlaying()) { event.preventDefault(); openMenu(); return; }

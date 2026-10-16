@@ -65,7 +65,6 @@ dialog::backdrop{background:#e3e7e124;backdrop-filter:blur(2px)}
 #luggage-list button:hover{background:#bec9b414}.journal-art{width:66px;height:53px;object-fit:contain;mix-blend-mode:multiply}.item-number{display:none}
 #luggage-list strong{display:block;font-size:18px;font-weight:400}#luggage-list small{display:block;font-size:13px;color:#6e796d}.item-state{font-size:14px;white-space:nowrap;color:#637463}
 .fiction-note{font-size:13px;line-height:1.8;color:#778276;margin:17px 0 0}.fiction-note a{color:inherit;text-underline-offset:3px}
-#reference-dialog{width:min(1300px,96vw);max-width:96vw;overflow:hidden;background:#eee}#reference-dialog img{width:100%;display:block;max-height:90svh;object-fit:contain}.reference-caption{position:absolute;bottom:12px;left:15px;font-size:13px;letter-spacing:.08em;background:#f4f4f0c9;padding:7px 10px}
 #ending{position:absolute;inset:0;z-index:8;display:flex;align-items:center;justify-content:flex-end;background:linear-gradient(90deg,transparent 5%,#eef0e769 35%,#f1f2e9ed 68%);animation:fade-in 2.8s ease both;overflow:auto}
 .ending-copy{width:540px;max-width:100%;margin:25px 5vw;padding:25px 20px}.ending-copy h2{font-weight:400;font-size:45px;letter-spacing:.10em;line-height:1.5;margin:5px 0 20px}
 .farewell-words{font-size:23px;line-height:2;letter-spacing:.08em}.ending-narrative{font-size:17px;line-height:2;color:#60715e}
@@ -115,14 +114,24 @@ dialog::backdrop{background:#e3e7e124;backdrop-filter:blur(2px)}
 #intro-title{color:#273a2e}
 .intro-poem{margin:20px 0 0;font-size:clamp(23px,2.1vw,31px);letter-spacing:.20em;line-height:1.95;color:#2b3b31;text-shadow:0 1px 9px #f8f8f3a8}
 .intro-poem span{display:block;white-space:nowrap}
-#start.intro-start{position:absolute;right:max(5.2vw,env(safe-area-inset-right));bottom:max(42px,env(safe-area-inset-bottom));z-index:2;width:224px;min-height:58px;font-size:22px;color:#293b30}
-.count-button{font-family:InkCalligraphy,InkBrush,serif;min-width:100px;font-size:30px;letter-spacing:.06em;font-variant-numeric:normal}
+#start.intro-start{position:absolute;right:max(5.2vw,env(safe-area-inset-right));bottom:max(110px,14svh,env(safe-area-inset-bottom));z-index:2;width:224px;min-height:58px;font-size:22px;color:#293b30}
+.count-button{min-width:108px;min-height:44px;display:grid;place-items:center}
+#luggage-count{display:flex;align-items:center;justify-content:center;gap:9px;min-height:28px}
+.luggage-dot{display:block;width:12px;height:11px;background:radial-gradient(ellipse at 48% 43%,#34443be8 36%,#34443b9c 68%,transparent 75%);border-radius:41% 56% 37% 52%;transform:rotate(-17deg);filter:drop-shadow(0 0 .5px #43504666)}
+.luggage-dot:nth-child(2n){width:11px;height:13px;transform:rotate(28deg);opacity:.83}
+.luggage-dot:nth-child(3n){width:13px;height:10px;transform:rotate(-34deg);opacity:.92}
+.entry-instruction{position:absolute;top:15%;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 48px);margin:0;padding:20px 28px;text-align:center;font-family:InkCalligraphy,InkBrush,serif;font-size:clamp(22px,2.2vw,29px);line-height:1.95;letter-spacing:.08em;color:#2e4035;text-shadow:0 1px 5px #fff,0 0 16px #fffffff0;isolation:isolate;pointer-events:none}
+.entry-instruction:before{content:'';position:absolute;inset:-20px -32px;z-index:-1;background:radial-gradient(ellipse,#f6f7f0ba 12%,#f6f7f065 44%,transparent 72%)}
+.entry-instruction span{display:block}
 @media(max-width:650px){
  .intro-copy>.eyebrow{font-size:14px}.intro-poem{font-size:23px;line-height:1.95;letter-spacing:.18em;margin-top:14px}
- #start.intro-start{right:max(27px,env(safe-area-inset-right));bottom:max(28px,env(safe-area-inset-bottom));width:195px;min-width:195px;font-size:21px}
- .count-button{min-width:94px;font-size:28px}
+ #start.intro-start{right:max(27px,env(safe-area-inset-right));bottom:max(110px,14svh,env(safe-area-inset-bottom));width:195px;min-width:195px;font-size:21px}
+ .count-button{min-width:102px}
+ .entry-instruction{max-width:calc(100% - 42px);width:340px;padding:14px 12px;font-size:clamp(18px,4.8vw,22px);letter-spacing:.045em;top:15%;line-height:1.95;text-wrap:balance}
+ .entry-instruction span+span{margin-top:9px}
 }
 @media(max-height:600px){
  .intro-poem{font-size:21px;line-height:1.7;margin-top:12px}
- #start.intro-start{right:max(30px,env(safe-area-inset-right));bottom:max(25px,env(safe-area-inset-bottom));width:204px;min-height:50px;font-size:20px}
+ #start.intro-start{right:max(30px,env(safe-area-inset-right));bottom:max(58px,env(safe-area-inset-bottom));width:204px;min-height:50px;font-size:20px}
+ .entry-instruction{top:13%;font-size:21px;padding:12px 20px}
 }
