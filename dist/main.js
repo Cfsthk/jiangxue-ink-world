@@ -1,11 +1,12 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=1.2.0';
-import { Soundscape } from './audio.js?v=1.2.0';
-import { InkWash } from './wash.js?v=1.2.0';
-import { createGroundSnow } from './ground-snow.js?v=1.2.0';
+import { createWorld } from './world.js?v=1.3.0';
+import { Soundscape } from './audio.js?v=1.3.0';
+import { InkWash } from './wash.js?v=1.3.0';
+import { createGroundSnow } from './ground-snow.js?v=1.3.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
+const chineseCounts=['零','一','二','三','四','五'];
 const intro = $('intro');
 const menu = $('menu');
 const referenceDialog = $('reference-dialog');
@@ -119,8 +120,8 @@ async function start() {
 function storyArt(id){return `<img src="./assets/props-v2/${id}.png" alt="" width="600" height="380">`;}
 function syncJourneyHUD(){
   if(!world)return;
-  const j=world.journey.getState();$('luggage-count').textContent=`${j.collected}/5`;
-  $('open-luggage').setAttribute('aria-label',`查看行李與已讀往事，已尋回 ${j.collected} 件，共 5 件`);
+  const j=world.journey.getState();$('luggage-count').textContent=`${chineseCounts[j.collected]}／五`;
+  $('open-luggage').setAttribute('aria-label',`查看行李與已讀往事，已尋回${chineseCounts[j.collected]}件，共五件`);
 }
 function showStory(item,fromLuggage=false){
   storyFromLuggage=fromLuggage;
@@ -471,7 +472,6 @@ storyDialog.addEventListener('cancel',event=>{event.preventDefault();closeStory(
 luggageDialog.addEventListener('cancel',event=>{event.preventDefault();closeLuggage();});
 $('luggage-list').addEventListener('click',event=>{const id=event.target.closest('[data-story]')?.dataset.story;if(id){const item=world.journey.items.find(i=>i.id===id);showStory(item,true);}});
 $('start').addEventListener('click', start);
-$('intro-help').addEventListener('click', openMenu);
 $('close-menu').addEventListener('click', closeMenu);
 $('resume').addEventListener('click', closeMenu);
 $('restart').addEventListener('click', restart);

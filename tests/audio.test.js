@@ -44,17 +44,103 @@ async function winterSound(t) {
   return sound;
 }
 
-test('ambient wind and river continue without introducing any musical sources', async t => {
+test('the soundscape stays silent before start, and disposal also releases scheduled music', async t => {
+  const sound = new Soundscape();
+  sound.update({ wind: 0.7 }); sound.step(); sound.rustle(); sound.queuePipaPhrase();
+  assert.equal(sound.context, null);
+  assert.equal(sound.getDiagnostics().music.nextPhraseAt, null);
+  assert.equal(sound.activeSources.size, 0);
+  sound.dispose();
+  const playing = await winterSound(t), ctx = playing.context;
+  ctx.currentTime = playing.getDiagnostics().music.nextPhraseAt;
+  playing.update();
+  assert.ok(playing.musicSources.size >= 3);
+  assert.ok(playing.pipaBuffers.size >= 2);
+  const sources = [...ctx.sources];
+  playing.dispose();
+  for (const source of sources) assert.ok(source.stops.length > 0 && source.disconnected);
+  assert.equal(playing.musicSources.size, 0);
+  assert.equal(playing.pipaBuffers.size, 0);
+  assert.equal(playing.getDiagnostics().music.nextPhraseAt, null);
+  assert.equal(ctx.state, 'closed');
+});
+
+test('the quiet opening has only wind and river; the first slow pipa phrase stays below the wind', async t => {
   const sound = await winterSound(t), ctx = sound.context;
   assert.equal(ctx.sources.length, 2);
-  for (let seconds = 0; seconds <= 600; seconds += 10) {
-    ctx.currentTime = seconds;
-    sound.update({ wind: 0.7, river: 0.5, shelter: 0 });
-  }
+  const due = sound.getDiagnostics().music.nextPhraseAt;
+  assert.ok(due >= 5 && due <= 9);
+  ctx.currentTime = due - 0.01;
+  sound.update({ wind: 0.7, river: 0.5, shelter: 0 });
   assert.equal(ctx.sources.length, 2);
+  ctx.currentTime = due;
+  sound.update();
+  const plucks = [...sound.musicSources], music = sound.getDiagnostics().music;
+  assert.ok(plucks.length >= 3 && plucks.length <= 4);
+  assert.equal(music.phrasesPlayed, 1);
+  assert.equal(music.lastPhraseAt, due);
+  assert.ok(music.mix >= 0.008 && music.mix <= 0.012);
+  assert.ok(music.mix < sound.getDiagnostics().windLevel / 4);
+  const starts = plucks.map(source => source.starts[0][0]);
+  assert.equal(starts[0], due);
+  for (let i = 1; i < starts.length; i++) {
+    assert.ok(starts[i] - starts[i - 1] >= 1.3);
+    assert.ok(starts[i] - starts[i - 1] <= 2.0);
+  }
+  assert.ok(music.nextPhraseAt - starts.at(-1) >= 16);
+  assert.ok(music.nextPhraseAt - starts.at(-1) <= 28);
+  for (const source of plucks) {
+    assert.ok(source.buffer.duration >= 2);
+    const samples = source.buffer.getChannelData(0);
+    assert.ok(samples.every(Number.isFinite));
+    assert.ok(samples.some(sample => Math.abs(sample) > 0.1));
+    assert.ok(Math.max(...samples) <= 0.721);
+    assert.ok(Math.min(...samples) >= -0.721);
+    source.onended();
+  }
+  assert.equal(sound.musicSources.size, 0);
+  assert.equal(sound.activeSources.size, 0);
   assert.ok(sound.getDiagnostics().gustScheduledUntil > ctx.currentTime);
-  assert.equal(sound.getDiagnostics().activeTransients, 0);
   assert.ok(sound.layers.every(source => source.loop && source.stops.length === 0));
+});
+
+test('muting cancels even future pipa notes, and resuming never plays missed phrases', async t => {
+  const sound = await winterSound(t), ctx = sound.context;
+  ctx.currentTime = sound.getDiagnostics().music.nextPhraseAt;
+  sound.update();
+  const plucks = [...sound.musicSources];
+  assert.ok(plucks.some(source => source.starts[0][0] > ctx.currentTime));
+  sound.setMuted(true);
+  for (const source of plucks) {
+    assert.equal(source.stops.at(-1), ctx.currentTime + 0.05);
+    source.onended();
+  }
+  assert.equal(sound.getDiagnostics().music.nextPhraseAt, null);
+  const sourceCount = ctx.sources.length;
+  ctx.currentTime = 600;
+  sound.update();
+  assert.equal(ctx.sources.length, sourceCount);
+  sound.setMuted(false);
+  sound.update();
+  assert.equal(ctx.sources.length, sourceCount);
+  assert.ok(sound.getDiagnostics().music.nextPhraseAt >= 605);
+  assert.ok(sound.getDiagnostics().music.nextPhraseAt <= 609);
+  ctx.currentTime = sound.getDiagnostics().music.nextPhraseAt;
+  sound.update();
+  assert.equal(sound.getDiagnostics().music.phrasesPlayed, 2);
+  const resumedPlucks = [...sound.musicSources];
+  sound.resetTransients();
+  assert.equal(sound.getDiagnostics().music.phrasesPlayed, 0);
+  assert.equal(sound.getDiagnostics().music.nextPhraseAt, null);
+  assert.equal(sound.getDiagnostics().music.lastPhraseAt, null);
+  for (const source of resumedPlucks) {
+    assert.equal(source.stops.at(-1), ctx.currentTime + 0.05);
+    source.onended();
+  }
+  sound.update();
+  assert.ok(sound.getDiagnostics().music.nextPhraseAt >= ctx.currentTime + 5);
+  assert.equal(sound.musicSources.size, 0);
+  assert.ok(sound.layers.every(source => source.stops.length === 0));
 });
 
 test('shelter softens wind and river, while mute fades footfalls and restores ambience cleanly', async t => {

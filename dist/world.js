@@ -1,13 +1,13 @@
 import * as THREE from './vendor/three.module.js';
-import { createBrushMaterials } from './ink-materials.js?v=1.2.0';
-import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=1.2.0';
-import { createRiverMaterial } from './river.js?v=1.2.0';
-import { createMountainSurround } from './mountains.js?v=1.2.0';
-import { createAmbience } from './ambience.js?v=1.2.0';
-import { createJourney, WAGON_SITE, JOURNEY_SPAWN } from './journey.js?v=1.2.0';
-import { createInkTrail } from './ink-trail.js?v=1.2.0';
-import { nearBank as bank, farBank as farBankAt, passWall, conformRockSurface } from './landscape-shape.js?v=1.2.0';
-import { LUGGAGE } from './journey-state.js?v=1.2.0';
+import { createBrushMaterials } from './ink-materials.js?v=1.3.0';
+import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=1.3.0';
+import { createRiverMaterial } from './river.js?v=1.3.0';
+import { createMountainSurround } from './mountains.js?v=1.3.0';
+import { createAmbience } from './ambience.js?v=1.3.0';
+import { createJourney, WAGON_SITE, JOURNEY_SPAWN } from './journey.js?v=1.3.0';
+import { createInkTrail } from './ink-trail.js?v=1.3.0';
+import { nearBank as bank, farBank as farBankAt, passWall, conformRockSurface } from './landscape-shape.js?v=1.3.0';
+import { LUGGAGE } from './journey-state.js?v=1.3.0';
 
 // Walkable terrain, weathered stone, pines and the boat are real 3D.
 // Chinese brush pigments wrap their surfaces; distant paintings complete the view.

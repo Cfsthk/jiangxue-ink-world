@@ -108,3 +108,21 @@ dialog::backdrop{background:#e3e7e124;backdrop-filter:blur(2px)}
  #luggage-list button,#luggage-list .luggage-row{grid-template-columns:57px 1fr;gap:13px;padding:12px 0;min-height:71px}
  #luggage-list strong{font-size:20px}
 }
+
+/* An open poem frontispiece; all lettering uses the bundled brush Kai face. */
+#intro{font-family:InkCalligraphy,InkBrush,serif;color:#293b30}
+.intro-copy>.eyebrow{color:#26382e;font-size:15px;letter-spacing:.30em}
+#intro-title{color:#273a2e}
+.intro-poem{margin:20px 0 0;font-size:clamp(23px,2.1vw,31px);letter-spacing:.20em;line-height:1.95;color:#2b3b31;text-shadow:0 1px 9px #f8f8f3a8}
+.intro-poem span{display:block;white-space:nowrap}
+#start.intro-start{position:absolute;right:max(5.2vw,env(safe-area-inset-right));bottom:max(42px,env(safe-area-inset-bottom));z-index:2;width:224px;min-height:58px;font-size:22px;color:#293b30}
+.count-button{font-family:InkCalligraphy,InkBrush,serif;min-width:100px;font-size:30px;letter-spacing:.06em;font-variant-numeric:normal}
+@media(max-width:650px){
+ .intro-copy>.eyebrow{font-size:14px}.intro-poem{font-size:23px;line-height:1.95;letter-spacing:.18em;margin-top:14px}
+ #start.intro-start{right:max(27px,env(safe-area-inset-right));bottom:max(28px,env(safe-area-inset-bottom));width:195px;min-width:195px;font-size:21px}
+ .count-button{min-width:94px;font-size:28px}
+}
+@media(max-height:600px){
+ .intro-poem{font-size:21px;line-height:1.7;margin-top:12px}
+ #start.intro-start{right:max(30px,env(safe-area-inset-right));bottom:max(25px,env(safe-area-inset-bottom));width:204px;min-height:50px;font-size:20px}
+}
