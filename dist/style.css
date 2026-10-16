@@ -116,10 +116,9 @@ dialog::backdrop{background:#e3e7e124;backdrop-filter:blur(2px)}
 .intro-poem span{display:block;white-space:nowrap}
 #start.intro-start{position:absolute;right:max(5.2vw,env(safe-area-inset-right));bottom:max(110px,14svh,env(safe-area-inset-bottom));z-index:2;width:224px;min-height:58px;font-size:22px;color:#293b30}
 .count-button{min-width:108px;min-height:44px;display:grid;place-items:center}
-#luggage-count{display:flex;align-items:center;justify-content:center;gap:9px;min-height:28px}
-.luggage-dot{display:block;width:12px;height:11px;background:radial-gradient(ellipse at 48% 43%,#34443be8 36%,#34443b9c 68%,transparent 75%);border-radius:41% 56% 37% 52%;transform:rotate(-17deg);filter:drop-shadow(0 0 .5px #43504666)}
-.luggage-dot:nth-child(2n){width:11px;height:13px;transform:rotate(28deg);opacity:.83}
-.luggage-dot:nth-child(3n){width:13px;height:10px;transform:rotate(-34deg);opacity:.92}
+#luggage-count{display:flex;align-items:center;justify-content:center;gap:6px;min-height:28px}
+/* Identical hollow brush circles; all ink is black and the centres remain transparent. */
+.luggage-dot{display:block;flex:0 0 18px;width:18px;height:18px;background:url('./assets/ink-count-circle.svg') center/contain no-repeat}
 .entry-instruction{position:absolute;top:15%;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 48px);margin:0;padding:20px 28px;text-align:center;font-family:InkCalligraphy,InkBrush,serif;font-size:clamp(22px,2.2vw,29px);line-height:1.95;letter-spacing:.08em;color:#2e4035;text-shadow:0 1px 5px #fff,0 0 16px #fffffff0;isolation:isolate;pointer-events:none}
 .entry-instruction:before{content:'';position:absolute;inset:-20px -32px;z-index:-1;background:radial-gradient(ellipse,#f6f7f0ba 12%,#f6f7f065 44%,transparent 72%)}
 .entry-instruction span{display:block}

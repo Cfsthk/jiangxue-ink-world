@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 66 66">
+  <defs>
+    <filter id="brush" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency=".2" numOctaves="3" seed="21" result="fibre"/>
+      <feDisplacementMap in="SourceGraphic" in2="fibre" scale="1.7" xChannelSelector="R" yChannelSelector="G"/>
+      <feGaussianBlur stdDeviation=".12"/>
+    </filter>
+    <mask id="dry-brush" maskUnits="userSpaceOnUse" x="0" y="0" width="66" height="66">
+      <rect width="66" height="66" fill="white"/>
+      <path d="M16 12C8 19 7 28 8 35M13 17C9 26 10 34 12 39M44 10C53 14 57 23 57 30M51 16C56 22 57 30 55 37M40 56C46 55 52 50 55 44" fill="none" stroke="black" stroke-width=".9" stroke-linecap="round"/>
+    </mask>
+  </defs>
+  <path fill="#000" fill-rule="evenodd" filter="url(#brush)" mask="url(#dry-brush)" d="M33 5C18 3 7 12 5 27C3 43 13 56 28 59C44 62 58 51 61 35C63 21 54 9 40 6C37 5 35 5 33 5ZM33 13C43 13 52 21 52 32C52 43 44 51 33 51C22 51 13 44 13 33C12 22 21 13 33 13Z"/>
+</svg>
