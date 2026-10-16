@@ -5,6 +5,11 @@ import * as THREE from './vendor/three.module.js';
 const kinds = { rock: 0, snow: 1, bark: 2, foliage: 3, wood: 4, straw: 5, cloth: 6 };
 const vertexShader = `
   attribute float snowHeight;
+  #ifdef ROOTED_WINTER_SWAY
+    attribute vec4 plantMotion;
+    uniform float uPlantTime;
+    uniform float uPlantGust;
+  #endif
   varying vec3 vWorld;
   varying vec3 vNormalWorld;
   varying vec3 vView;
@@ -13,6 +18,16 @@ const vertexShader = `
   void main(){
     vec3 p=position;
     vec3 n=normal;
+    #ifdef ROOTED_WINTER_SWAY
+      // Height above each clump's root is baked before merging. A squared
+      // profile fixes the buried stem while the slender upper stem bends.
+      float flex=plantMotion.x*plantMotion.x;
+      float flutter=.72+.19*sin(uPlantTime*1.65+plantMotion.z)+.09*sin(uPlantTime*2.71+plantMotion.z*.43);
+      float bend=plantMotion.w*(.12+uPlantGust*.88)*flutter;
+      p.xz+=vec2(.980581,.196116)*flex*bend;
+      p.y-=flex*bend*bend/max(.24,plantMotion.y)*.25;
+      n.xz-=vec2(.980581,.196116)*n.y*2.*plantMotion.x*bend/max(.24,plantMotion.y);
+    #endif
     #ifdef USE_INSTANCING
       p=(instanceMatrix*vec4(p,1.)).xyz;
       vec3 scale2=vec3(dot(instanceMatrix[0].xyz,instanceMatrix[0].xyz),dot(instanceMatrix[1].xyz,instanceMatrix[1].xyz),dot(instanceMatrix[2].xyz,instanceMatrix[2].xyz));
@@ -203,6 +218,17 @@ export function createBrushMaterials(){
       const painted=material.clone();
       painted.uniforms.uSnow.value=amount;
       painted.defaultAttributeValues.snowHeight=[0];
+      materials.push(painted);
+      return painted;
+    },
+    withRootedWind(material){
+      const painted=material.clone();
+      painted.defines={...painted.defines,ROOTED_WINTER_SWAY:1};
+      painted.uniforms.uPlantTime={value:0};
+      painted.uniforms.uPlantGust={value:.5};
+      painted.defaultAttributeValues.snowHeight=[0];
+      painted.defaultAttributeValues.plantMotion=[0,1,0,0];
+      // Keep these clones in the texture-loading registry as well.
       materials.push(painted);
       return painted;
     },

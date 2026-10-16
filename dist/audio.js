@@ -14,7 +14,7 @@ export class Soundscape {
     this.lastCall = -Infinity;
     this.callInProgress = false;
     this.callToken = 0;
-    this.stepInterval = 0.55;
+    this.stepInterval = 0.24;
     this.lastStepDuration = 0;
     this.windScheduledUntil = 0;
   }
@@ -32,7 +32,6 @@ export class Soundscape {
       this.master.connect(ctx.destination);
       this.noise = this.makeNoise(false);
       this.darkNoise = this.makeNoise(true);
-      this.snowNoise = this.makeSnowNoise();
       this.windGust = ctx.createGain();
       this.windGust.gain.value = 0.38;
       this.windGust.connect(this.master);
@@ -108,13 +107,9 @@ export class Soundscape {
     const now = this.context.currentTime;
     if (now - this.lastStep < this.stepInterval) return;
     this.lastStep = now;
-    const weight = 0.94 + Math.random() * 0.12;
-    // A slow weight compression, broken snow crystals, then a soft sole drag.
-    // All three tails end by 0.56 s; there is no rapid clicking footstep loop.
-    this.noiseBurst({ duration: 0.33, volume: 0.15 * weight, low: 85, high: 720, attack: 0.035, hold: 0.075, buffer: this.darkNoise });
-    this.noiseBurst({ duration: 0.40, volume: 0.105 * weight, low: 530, high: 3150, delay: 0.035, attack: 0.025, hold: 0.09, buffer: this.snowNoise });
-    this.noiseBurst({ duration: 0.36, volume: 0.068 * weight, low: 220, high: 1550, delay: 0.16, attack: 0.06, hold: 0.045, buffer: this.snowNoise });
-    this.lastStepDuration = 0.56;
+    this.noiseBurst({ duration: 0.19, volume: 0.075, low: 145, high: 1050, attack: 0.015 });
+    this.noiseBurst({ duration: 0.10, volume: 0.025, low: 1000, high: 3400, delay: 0.03, attack: 0.006 });
+    this.lastStepDuration = 0.23;
   }
 
   rustle() {
@@ -198,22 +193,6 @@ export class Soundscape {
       samples[i] = seam * (1 - weight) + samples[i] * weight;
       const end = samples.length - 1 - i;
       samples[end] = seam * (1 - weight) + samples[end] * weight;
-    }
-    return buffer;
-  }
-
-  makeSnowNoise() {
-    const ctx = this.context, buffer = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
-    const samples = buffer.getChannelData(0);
-    let grainLength = 1, grainPosition = 1, grainWeight = 0.7;
-    for (let i = 0; i < samples.length; i++) {
-      if (++grainPosition >= grainLength) {
-        grainLength = Math.floor(ctx.sampleRate * (0.003 + Math.random() * 0.010));
-        grainPosition = 0;
-        grainWeight = 0.40 + Math.random() * 0.60;
-      }
-      const grain = Math.sin(grainPosition / grainLength * Math.PI) ** 2;
-      samples[i] = (Math.random() * 2 - 1) * (0.10 + grain * grainWeight * 0.48);
     }
     return buffer;
   }
@@ -326,6 +305,7 @@ export class Soundscape {
     return Object.freeze({
       running: this.context?.state === 'running', muted: this.muted,
       gustGain: this.windGust?.gain.value ?? 0,
+      windLevel: this.wind?.gain.gain.value ?? 0, environment:{...this.environment},
       gustScheduledUntil: this.windScheduledUntil,
       lastStep: Number.isFinite(this.lastStep) ? this.lastStep : null,
       stepInterval: this.stepInterval, lastStepDuration: this.lastStepDuration,

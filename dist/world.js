@@ -1,8 +1,9 @@
 import * as THREE from './vendor/three.module.js';
-import { createBrushMaterials } from './ink-materials.js?v=0.6.0';
-import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=0.6.0';
-import { createRiverMaterial } from './river.js?v=0.6.0';
-import { createMountainSurround } from './mountains.js?v=0.6.0';
+import { createBrushMaterials } from './ink-materials.js?v=0.7.0';
+import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=0.7.0';
+import { createRiverMaterial } from './river.js?v=0.7.0';
+import { createMountainSurround } from './mountains.js?v=0.7.0';
+import { createAmbience } from './ambience.js?v=0.7.0';
 
 // Walkable terrain, weathered stone, pines and the boat are real 3D.
 // Chinese brush pigments wrap their surfaces; distant paintings complete the view.
@@ -27,7 +28,7 @@ export function createWorld() {
   const interactables = [];
   const collisions = [];
   const pines = [];
-  const waterAnimations = [];
+  const windbreaks = [];
   const mountainSurround=createMountainSurround();scene.add(mountainSurround.group);
   const pineClearances=[];
   const farPineMaterials = [];
@@ -40,7 +41,7 @@ export function createWorld() {
   const winterPlants = [];
   const winterPlantBatches = new Map();
   const farForestStats = {models:0,sprites:0,variants:{bare:0,crooked:0,upright:0,windswept:0}};
-  const vegetationCounts = {grass:0,reed:0,shrub:0};
+  const vegetationCounts = {grass:0,reed:0,shrub:0,seedhead:0,litter:0,twig:0};
   const beachPathSamples = [];
   const pathFootprints = [];
   let maxPathSampleSpacing=0;
@@ -338,6 +339,7 @@ export function createWorld() {
     rock.position.set(x,ground?heightAt(x,z)-h*((spire||h/r>1.1)?.35:.26):(spire?-3.6:-.48),z);
     rock.rotation.y=rand()*TAU;scene.add(rock);
     if(addCollision)collisions.push({x,z,r:r*.84});
+    if(ground&&h>=2.2&&r>=1.5)windbreaks.push({x,z,radius:r,height:h,top:rock.position.y+h});
     if(ground&&r>.7)addContactWash(x,z,r,randomSeed*.001,.22,1.12);
     return rock;
   }
@@ -570,14 +572,37 @@ export function createWorld() {
   // Additional near-land pines stay sparse and alternate in height.
   [[-34,65],[-17,56],[-8,24],[-21,17],[-43,7],[-57,3],[-64,53],[-65,-43],[-54,-55],[-34,-60],[-21,-34],[-7,-47]].forEach(([x,z],i)=>addPine(x,z,.70+(i%5)*.105,i%6===0));
   [[-43,55],[-24,46],[-11,13],[-31,0],[-58,-51],[-42,-65],[-14,-56],[-63,23]].forEach(([x,z],i)=>addPine(x,z,.68+(i%4)*.12,i%5===0));
+  // The lee side follows the same eastward wind as the airborne snow. It is
+  // tied to physical rock height, so a low stone cannot shelter an uphill eye.
+  function shelterAt(x,z){
+    const windX=.980580676,windZ=.196116135;
+    let shelter=0;
+    const eye=heightAt(x,z)+1.28;
+    for(const rock of windbreaks){
+      const dx=x-rock.x,dz=z-rock.z,along=dx*windX+dz*windZ;
+      const start=rock.radius*.52,reach=rock.radius+rock.height*2.3;
+      if(along<start||along>reach||eye>rock.top+.12)continue;
+      const cross=Math.abs(dx*windZ-dz*windX);
+      const width=rock.radius*(.94-.28*smooth(start,reach,along))+.30;
+      const lateral=1-smooth(width*.32,width,cross);
+      const downstream=smooth(start,start+.75,along)*(1-smooth(rock.radius+1,reach,along));
+      const overhead=smooth(-.12,1.1,rock.top-eye);
+      shelter=Math.max(shelter,lateral*downstream*overhead*.95);
+    }
+    return shelter;
+  }
   // Small winter plants are merged by shared material: many clumps, few draws.
   let plantSeed=192731;
   const plantRand=()=>{plantSeed=(plantSeed*1664525+1013904223)>>>0;return plantSeed/4294967296;};
   function queueWinterPlant(type,x,z,size,far=false){
+    // Reject obvious collisions before generating several thousand vertices.
+    if(!far&&(!canWalk(x,z)||pathClearanceAt(x,z)<.65))return false;
     const seed=Math.floor(plantRand()*1000000),plant=buildWinterPlant(palette,{kind:type,size,seed});
     plant.updateMatrixWorld(true);
     const bounds=new THREE.Box3().setFromObject(plant);
-    const radius=Math.max(plant.userData.footprintRadius||0,Math.hypot(Math.max(Math.abs(bounds.min.x),Math.abs(bounds.max.x)),Math.max(Math.abs(bounds.min.z),Math.abs(bounds.max.z))));
+    const staticPlant=plant.userData.noAnimation;
+    const swayAmplitude=staticPlant?0:(type==='reed'?.19:type==='shrub'?.055:.105)*size;
+    const radius=Math.max(plant.userData.footprintRadius||0,Math.hypot(Math.max(Math.abs(bounds.min.x),Math.abs(bounds.max.x)),Math.max(Math.abs(bounds.min.z),Math.abs(bounds.max.z))))+swayAmplitude;
     const clearance=pathClearanceAt(x,z);
     if(clearance<radius+.38)return false;
     if(far){if(x<farBankAt(z)+radius*1.3+.65)return false;}
@@ -591,10 +616,21 @@ export function createWorld() {
       if(!part.isMesh||part.isInstancedMesh||Array.isArray(part.material))return;
       let geometry=part.geometry.clone();geometry.applyMatrix4(part.matrixWorld);
       if(geometry.index){const flat=geometry.toNonIndexed();geometry.dispose();geometry=flat;}
+      const positions=geometry.attributes.position,motion=new Float32Array(positions.count*4),plantHeight=Math.max(.05,bounds.max.y);
+      const exposure=far?1:1-shelterAt(x,z)*.82;
+      for(let i=0;i<positions.count;i++){
+        const wx=positions.getX(i),wz=positions.getZ(i),localHeight=Math.max(0,positions.getY(i)-plant.position.y);
+        const ground=far?farHeightAt(wx,wz):heightAt(wx,wz);
+        const conform=staticPlant?1:1-smooth(.02,.28*size,localHeight);
+        positions.setY(i,positions.getY(i)+(ground-plant.position.y)*conform+.006);
+        motion[i*4]=clamp(localHeight/plantHeight,0,1);motion[i*4+1]=plantHeight;
+        motion[i*4+2]=seed*.017;motion[i*4+3]=swayAmplitude*exposure;
+      }
+      geometry.setAttribute('plantMotion',new THREE.BufferAttribute(motion,4));
       if(!winterPlantBatches.has(part.material))winterPlantBatches.set(part.material,[]);
       winterPlantBatches.get(part.material).push(geometry);
     });
-    winterPlants.push({type,x,z,size,far,radius,clearance});vegetationCounts[type]++;return true;
+    winterPlants.push({type,x,z,size,far,radius,clearance,maxSway:swayAmplitude});vegetationCounts[type]++;return true;
   }
   for(let i=2;i<pathFootprints.length;i+=7+Math.floor(plantRand()*9)){
     const quad=pathFootprints[i],centre={x:quad.points.reduce((n,p)=>n+p.x,0)/4,z:quad.points.reduce((n,p)=>n+p.z,0)/4};
@@ -617,13 +653,35 @@ export function createWorld() {
     const type=plantRand()<.76?'reed':'shrub';
     queueWinterPlant(type,farBankAt(z)+1.8+plantRand()*5.5,z,1.0+plantRand()*.55,true);
   }
+  // Debris collects beneath the different trees rather than evenly covering
+  // every patch of snow. Keep open gaps, and never overlap the walking path.
+  for(const tree of pines){
+    for(let i=0;i<7;i++){
+      const angle=plantRand()*TAU,distance=1.1+plantRand()*3.6;
+      const type=i<4?(tree.userData.variant==='bare'?'twig':'litter'):plantRand()<.45?'seedhead':'grass';
+      queueWinterPlant(type,tree.position.x+Math.cos(angle)*distance,tree.position.z+Math.sin(angle)*distance,.63+plantRand()*.53);
+    }
+  }
+  // Irregular small islands of winter growth fill the lower slopes and
+  // sheltered hollows, interspersed with empty wind-swept snow.
+  for(let cluster=0;cluster<100;cluster++){
+    const cx=-67+plantRand()*60,cz=-66+plantRand()*128;
+    const kinds=['grass','grass','seedhead','litter','twig','shrub'];
+    for(let j=0;j<4;j++){
+      const angle=plantRand()*TAU,spread=Math.sqrt(plantRand())*2.7;
+      const type=kinds[Math.floor(plantRand()*kinds.length)];
+      queueWinterPlant(type,cx+Math.cos(angle)*spread,cz+Math.sin(angle)*spread,.55+plantRand()*.57);
+    }
+  }
   let vegetationBatchCount=0;
+  const windPlantMaterials=[];
   for(const [material,pieces] of winterPlantBatches){
-    const count=pieces.reduce((n,g)=>n+g.attributes.position.count,0),positions=new Float32Array(count*3),normals=new Float32Array(count*3),uv=new Float32Array(count*2);
+    const count=pieces.reduce((n,g)=>n+g.attributes.position.count,0),positions=new Float32Array(count*3),normals=new Float32Array(count*3),uv=new Float32Array(count*2),motion=new Float32Array(count*4);
     let offset=0;
-    for(const geometry of pieces){const n=geometry.attributes.position.count;positions.set(geometry.attributes.position.array,offset*3);normals.set(geometry.attributes.normal.array,offset*3);if(geometry.attributes.uv)uv.set(geometry.attributes.uv.array,offset*2);offset+=n;geometry.dispose();}
-    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));geometry.setAttribute('normal',new THREE.BufferAttribute(normals,3));geometry.setAttribute('uv',new THREE.BufferAttribute(uv,2));geometry.computeBoundingSphere();
-    const mesh=new THREE.Mesh(geometry,material);mesh.name='冬草蘆葦枯灌木・材質合批';scene.add(mesh);vegetationBatchCount++;
+    for(const geometry of pieces){const n=geometry.attributes.position.count;positions.set(geometry.attributes.position.array,offset*3);normals.set(geometry.attributes.normal.array,offset*3);motion.set(geometry.attributes.plantMotion.array,offset*4);if(geometry.attributes.uv)uv.set(geometry.attributes.uv.array,offset*2);offset+=n;geometry.dispose();}
+    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));geometry.setAttribute('normal',new THREE.BufferAttribute(normals,3));geometry.setAttribute('uv',new THREE.BufferAttribute(uv,2));geometry.setAttribute('plantMotion',new THREE.BufferAttribute(motion,4));geometry.computeBoundingSphere();geometry.boundingSphere.radius+=.3;
+    const windMaterial=palette.withRootedWind(material);windPlantMaterials.push(windMaterial);
+    const mesh=new THREE.Mesh(geometry,windMaterial);mesh.name='冬草蘆葦枯葉枝・固定根部風動合批';scene.add(mesh);vegetationBatchCount++;
   }
   winterPlantBatches.clear();
   const boat=buildFishingBoat(palette);
@@ -632,20 +690,7 @@ export function createWorld() {
   boat.position.set(17,-.095,-30);boat.rotation.y=-.24;boat.name='孤舟';scene.add(boat);
   boat.userData.initialY=boat.position.y;
   boat.userData.buoyancy=Object.freeze({waterLevel:-.02,amplitude:.105,angularSpeed:.68,rollAmplitude:.018,pitchAmplitude:.011});
-  for(let k=0;k<4;k++){
-    const ring=[];for(let i=0;i<=80;i++){const a=i/80*TAU;ring.push(new THREE.Vector3(17+Math.cos(a)*(3.1+k*.58),.012+k*.001,-30+Math.sin(a)*(1.1+k*.27)));}
-    const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints(ring),new THREE.LineBasicMaterial({color:'#b7c3c8',transparent:true,opacity:.25-k*.035,depthWrite:false}));scene.add(l);waterAnimations.push(l);
-  }
-
-  // Soft ground mist is a wash, not a solid white wall around each mountain.
-  const mistCanvas=document.createElement('canvas');mistCanvas.width=128;mistCanvas.height=128;
-  const ctx=mistCanvas.getContext('2d');
-  const gradient=ctx.createRadialGradient(64,64,0,64,64,64);gradient.addColorStop(0,'rgba(244,244,242,.70)');gradient.addColorStop(.5,'rgba(244,244,242,.34)');gradient.addColorStop(1,'rgba(244,244,242,0)');ctx.fillStyle=gradient;ctx.fillRect(0,0,128,128);
-  const mistTexture=new THREE.CanvasTexture(mistCanvas);mistTexture.colorSpace=THREE.SRGBColorSpace;
-  const mistMaterial=new THREE.SpriteMaterial({map:mistTexture,transparent:true,opacity:.30,depthWrite:false,toneMapped:false});
-  for(const [x,y,z,sx,sy] of [[64,10,-70,90,26],[88,13,23,105,34],[82,17,-132,110,38],[138,24,-91,120,45],[33,6,-114,90,19],[47,7,97,100,23]]){
-    const mist=new THREE.Sprite(mistMaterial);mist.position.set(x,y,z);mist.scale.set(sx,sy,1);scene.add(mist);
-  }
+  const ambience=createAmbience({scene,boat,heightAt,bank});
 
   const shorePoint=new THREE.Vector3(-4,heightAt(-4,-24),-24);
   interactables.push({id:'shore-stone',type:'stone',position:new THREE.Vector3(-6,heightAt(-6,-21)+.35,-21),radius:3.4,label:'拾起小石',object:null});
@@ -666,7 +711,7 @@ export function createWorld() {
     if(x<-48 && z<-28)return '風口・寒意漸深';
     return '山徑・不見人蹤';
   }
-  function update(dt,time,player){
+  function update(dt,time,player,gust=.5+.3*Math.sin(time*.37)+.2*Math.sin(time*.83+1.4)){
     riverMaterial.uniforms.uTime.value=time;
     const buoyancy=boat.userData.buoyancy;
     boat.position.y=boat.userData.initialY+Math.sin(time*buoyancy.angularSpeed)*buoyancy.amplitude;
@@ -678,7 +723,8 @@ export function createWorld() {
       tree.rotation.z=Math.sin(time*.37+tree.userData.swayPhase)*.005+Math.sin(elapsed*23)*shake*.045;
       if(tree.userData.paintedSprite)tree.userData.paintedSprite.material.rotation=tree.rotation.z;
     });
-    waterAnimations.forEach((ring,i)=>{ring.material.opacity=.12+Math.sin(time*.35+i)*.035;});
+    windPlantMaterials.forEach(material=>{material.uniforms.uPlantTime.value=time;material.uniforms.uPlantGust.value=clamp(gust,0,1);});
+    ambience.update(dt,time,player);
   }
   // A zero default also keeps non-rock shader inputs explicit and predictable.
   scene.traverse(object=>{
@@ -697,6 +743,13 @@ export function createWorld() {
     pineTexture.colorSpace=THREE.SRGBColorSpace;pineTexture.anisotropy=4;
     farPineMaterials.forEach(material=>{material.map=pineTexture;material.needsUpdate=true;});
   });
+  const shelterSpots=[];
+  for(const rock of windbreaks){
+    for(const distance of [rock.radius+.8,rock.radius+1.6,rock.radius+2.5]){
+      const x=rock.x+.980580676*distance,z=rock.z+.196116135*distance;
+      if(canWalk(x,z)&&shelterAt(x,z)>.55){shelterSpots.push(Object.freeze({x,z,shelter:shelterAt(x,z),rockX:rock.x,rockZ:rock.z}));break;}
+    }
+  }
   const landmarks={summit:{x:-46,z:-12},shore:{x:-4,z:-24},forest:{x:-48,z:37}};
-  return {scene,ready,spawn:{x:-25,z:9,yaw:-0.60,pitch:0.01},heightAt,canWalk,zoneAt,interactables,boat,update,landmarks,pineClearances,pathSampling:{count:pathSamples.length,maxSpacing:maxPathSampleSpacing,mode:'rendered-road-footprint'},pathWidths:Object.freeze(pathWidths),assetState,vegetationStats:Object.freeze({counts:{...vegetationCounts},clumps:winterPlants.length,batches:vegetationBatchCount,minRoadClearance:Math.min(...winterPlants.map(p=>p.clearance))}),vegetationPlacements:Object.freeze(winterPlants),farForestStats:Object.freeze(farForestStats),treeVariantCounts:Object.freeze(pineClearances.reduce((counts,p)=>(counts[p.variant]=(counts[p.variant]||0)+1,counts),{}))};
+  return {scene,ready,spawn:{x:-25,z:9,yaw:-0.60,pitch:0.01},heightAt,canWalk,shelterAt,shelterSpots:Object.freeze(shelterSpots),ambienceDiagnostics:ambience.diagnostics,zoneAt,interactables,boat,update,landmarks,pineClearances,pathSampling:{count:pathSamples.length,maxSpacing:maxPathSampleSpacing,mode:'rendered-road-footprint'},pathWidths:Object.freeze(pathWidths),assetState,vegetationStats:Object.freeze({counts:{...vegetationCounts},clumps:winterPlants.length,batches:vegetationBatchCount,minRoadClearance:Math.min(...winterPlants.map(p=>p.clearance))}),vegetationPlacements:Object.freeze(winterPlants),farForestStats:Object.freeze(farForestStats),treeVariantCounts:Object.freeze(pineClearances.reduce((counts,p)=>(counts[p.variant]=(counts[p.variant]||0)+1,counts),{}))};
 }

@@ -1,7 +1,8 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=0.6.0';
-import { Soundscape } from './audio.js?v=0.6.0';
-import { InkWash } from './wash.js?v=0.6.0';
+import { createWorld } from './world.js?v=0.7.0';
+import { Soundscape } from './audio.js?v=0.7.0';
+import { InkWash } from './wash.js?v=0.7.0';
+import { createGroundSnow } from './ground-snow.js?v=0.7.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
@@ -17,9 +18,9 @@ const player = { x: -32, z: 44, y: 0, yaw: -.85, pitch: -.08, targetYaw: -.85, t
 const joy = { x: 0, y: 0, id: null };
 let renderer, camera, world, wash;
 let lastTime = performance.now(), footDistance = 0, lastPlayer = null, feedbackTimer, callTime = -100, interactionTime = -100;
-let echoAt = Infinity, lastStepSound = -100;
+let echoAt = Infinity, shelter = 0;
 let drag = null, focusUntil = 0, frameSamples = 0, fpsTime = 0;
-let nextFoot = 1, snowCount = 0;
+let nextFoot = 1, snowCount = 0, powderDiagnostics = null;
 const footprints = [], effects = [];
 const effectRoot = new THREE.Group();
 const rippleGeometry = new THREE.RingGeometry(.97, 1, 64);
@@ -82,7 +83,8 @@ function restart() {
   for (const effect of effects) disposeEffect(effect.object);
   effects.length = 0;
   echoAt = Infinity;
-  callTime = interactionTime = lastStepSound = -100;
+  callTime = interactionTime = -100;
+  shelter = 0;
   state.target = null;
   $('interact').hidden = true;
   clearTimeout(feedbackTimer);
@@ -149,8 +151,7 @@ function addFootprint() {
   effectRoot.add(mesh);
   footprints.push({ mesh, born: state.time });
   if (footprints.length > 140) { const old = footprints.shift(); effectRoot.remove(old.mesh); old.mesh.geometry.dispose(); old.mesh.material.dispose(); }
-  // Keep the walking sound unhurried even when travelling between distant paths.
-  if (state.time - lastStepSound >= .58) { sound.step(); lastStepSound = state.time; }
+  sound.step();
 }
 
 function addRipple(x, z) {
@@ -292,7 +293,8 @@ function move(dt) {
   const zone = world.zoneAt(player.x, player.z);
   if (zone !== state.zone) { state.zone = zone; $('location').textContent = zone; }
   const shoreDistance = Math.max(0, 1 - Math.abs(player.x - 2) / 25);
-  sound.update({ wind: .3 + Math.min(.5, (player.y - 1.65) / 35), river: shoreDistance, shelter: zone.includes('松') ? .55 : 0 });
+  shelter = THREE.MathUtils.damp(shelter, world.shelterAt(player.x,player.z), 2.8, dt);
+  sound.update({ wind: .3 + Math.min(.5, (player.y - 1.65) / 35), river: shoreDistance, shelter: Math.max(shelter, zone.includes('松') ? .30 : 0) });
 }
 
 function addWeather() {
@@ -313,12 +315,13 @@ function addWeather() {
   geometry.setAttribute('aPhase',new THREE.BufferAttribute(phases,1));
   const material = new THREE.ShaderMaterial({
     transparent:true,depthWrite:false,
-    uniforms:{uScale:{value:innerHeight*renderer.getPixelRatio()*.94}},
-    vertexShader:`attribute float aSize; attribute float aPhase; uniform float uScale;
+    uniforms:{uScale:{value:innerHeight*renderer.getPixelRatio()*.94},uShelter:{value:0}},
+    vertexShader:`attribute float aSize; attribute float aPhase; uniform float uScale; uniform float uShelter;
       varying float vAlpha; varying float vPhase;
       void main(){ vec4 p=modelViewMatrix*vec4(position,1.); gl_Position=projectionMatrix*p;
         gl_PointSize=clamp(aSize*uScale/max(1.,-p.z),1.35,18.);
-        vAlpha=(.58+.23*sin(aPhase*2.3))*(1.-smoothstep(14.,45.,-p.z)); vPhase=aPhase; }`,
+        float localLee=uShelter*(1.-smoothstep(3.,18.,-p.z));
+        vAlpha=(.58+.23*sin(aPhase*2.3))*(1.-smoothstep(14.,45.,-p.z))*(1.-localLee*.83); vPhase=aPhase; }`,
     fragmentShader:`varying float vAlpha; varying float vPhase;
       void main(){vec2 p=gl_PointCoord-.5; float a=atan(p.y,p.x);
         float r=length(p)+.025*sin(a*5.+vPhase)+.018*sin(a*9.);
@@ -329,14 +332,17 @@ function addWeather() {
   });
   const snow = new THREE.Points(geometry, material);
   snow.frustumCulled = false; world.scene.add(snow);
+  const powder = createGroundSnow({ scene:world.scene, heightAt:world.heightAt, shelterAt:world.shelterAt, reducedMotion, coarse:matchMedia('(pointer:coarse)').matches });
+  powderDiagnostics = powder.diagnostics;
   return dt => {
     const gust = .5 + .3*Math.sin(state.time*.37) + .2*Math.sin(state.time*.83+1.4);
     const drift=.20+gust*.64, motion=reducedMotion ? .5 : 1;
     for (let i = 0; i < count; i++) {
       const j=i*3;
-      positions[j]+=dt*(drift+Math.sin(state.time*.65+phases[i])*.13)*motion;
+      const localLee=shelter*(1-THREE.MathUtils.smoothstep(Math.hypot(positions[j]-player.x,positions[j+2]-player.z),3,18));
+      positions[j]+=dt*(drift+Math.sin(state.time*.65+phases[i])*.13)*motion*(1-localLee*.86);
       positions[j+1]-=dt*speed[i]*motion;
-      positions[j+2]+=dt*Math.sin(phases[i]+state.time*.36)*.08*motion;
+      positions[j+2]+=dt*(drift*.2+Math.sin(phases[i]+state.time*.36)*.08)*motion*(1-localLee*.86);
       if(positions[j+1]<player.y-10)positions[j+1]=player.y+28;
       if(positions[j+1]>player.y+28)positions[j+1]=player.y-10;
       const span=spans[i], half=span*.5;
@@ -344,7 +350,9 @@ function addWeather() {
       if(positions[j+2]>player.z+half)positions[j+2]-=span; else if(positions[j+2]<player.z-half)positions[j+2]+=span;
     }
     material.uniforms.uScale.value=innerHeight*renderer.getPixelRatio()*.94;
+    material.uniforms.uShelter.value=shelter;
     geometry.attributes.position.needsUpdate = true;
+    powder.update(dt,state.time,player,gust);
   };
 }
 
@@ -378,7 +386,7 @@ function init() {
       if (!state.paused && !document.hidden) {
         state.time += dt;
         if (isPlaying()) move(dt);
-        world.update(dt, state.time, player);
+        world.update(dt, state.time, player, .5+.3*Math.sin(state.time*.37)+.2*Math.sin(state.time*.83+1.4));
         updateEffects(dt); weather(dt);
       }
       camera.position.set(player.x, player.y, player.z); camera.rotation.set(player.pitch, player.yaw, 0);
@@ -396,7 +404,7 @@ function init() {
       console.error('水墨素材載入失敗', error);
       $('load-status').textContent = '水墨素材未能載入，請重新整理再試。';
     });
-    window.__JIANGXUE__ = Object.freeze({ getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.() }) });
+    window.__JIANGXUE__ = Object.freeze({ getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length, boat: { y:world.boat.position.y, roll:world.boat.rotation.z, pitch:world.boat.rotation.x }, audio: sound.getDiagnostics?.(), shelter:Number(shelter.toFixed(3)), shelterSpots:world.shelterSpots, vegetation:world.vegetationStats, ambience:{...world.ambienceDiagnostics}, groundSnow:powderDiagnostics?.() }) });
   } catch (error) {
     console.error('江雪世界載入失敗', error);
     $('start-label').textContent = '重新載入'; $('start').disabled = false;

@@ -493,7 +493,7 @@ export function buildWinterPlant(palette, { kind = 'grass', type = null, size = 
   const b = new BrushBatch(), r = seeded(seed);
   const { branchMaterial: bark, foliageMaterial: foliage, snowMaterial: snow } = palette;
   const requested = type || kind;
-  const plantKind = ['grass', 'reed', 'shrub'].includes(requested) ? requested : 'grass';
+  const plantKind = ['grass', 'reed', 'shrub', 'seedhead', 'litter', 'twig'].includes(requested) ? requested : 'grass';
   root.name = `冬植・${plantKind}`;
 
   const addSnowFleck = (center, radius = .045, depth = radius * .62) => {
@@ -503,7 +503,52 @@ export function buildWinterPlant(palette, { kind = 'grass', type = null, size = 
     b.add(tube(points, startRadius, endRadius, segments, sides), material);
   };
 
-  if (plantKind === 'grass') {
+  if (plantKind === 'litter' || plantKind === 'twig') {
+    // Fallen branches and scattered needles are small real brush-skinned
+    // shapes, half buried in snow, with no rectangular ground decal.
+    const twigs=plantKind==='twig'?3:1;
+    for(let i=0;i<twigs;i++){
+      const angle=r()*TAU,length=plantKind==='twig'?.45+r()*.48:.20+r()*.25;
+      const a=[-Math.cos(angle)*length*.48,.019,-Math.sin(angle)*length*.48];
+      const middle=[(r()-.5)*.10,.038,(r()-.5)*.10];
+      const end=[Math.cos(angle)*length*.52,.025,Math.sin(angle)*length*.52];
+      addStem([a,middle,end],bark,.013+r()*.009,.003,5,4);
+      const fork=[end[0]*.55+Math.cos(angle+.65)*length*.28,.031,end[2]*.55+Math.sin(angle+.65)*length*.28];
+      addStem([middle,fork],bark,.009,.002,3,3);
+      if(i%2===0)addSnowFleck(middle,.045,.025);
+    }
+    const needles=plantKind==='twig'?6:15+Math.floor(r()*8);
+    for(let i=0;i<needles;i++){
+      const a=r()*TAU,rad=Math.sqrt(r())*.48;
+      const center=[Math.cos(a)*rad,.022+r()*.012,Math.sin(a)*rad];
+      const angle=a+(r()-.5)*2.5,len=.075+r()*.10;
+      addStem([center,[center[0]+Math.cos(angle)*len,center[1]+.004,center[2]+Math.sin(angle)*len]],foliage,.004,.001,2,3);
+    }
+    for(let i=0;i<(plantKind==='twig'?1:3);i++){
+      const x=(r()-.5)*.64,z=(r()-.5)*.64,length=.09+r()*.07,width=.035+r()*.025;
+      const vertices=[0,.017,0],uv=[.5,.5],indices=[];
+      for(let j=0;j<=10;j++){
+        const a=j/10*TAU,edge=.74+r()*.26;
+        vertices.push(Math.cos(a)*length*edge,.006+Math.abs(Math.cos(a))*.016,Math.sin(a)*width*edge);
+        uv.push(.5+Math.cos(a)*.5,.5+Math.sin(a)*.5);
+        if(j<10)indices.push(0,j+1,j+2);
+      }
+      const leaf=new THREE.BufferGeometry();leaf.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));leaf.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));leaf.setIndex(indices);leaf.computeVertexNormals();
+      b.add(leaf,foliage,[x,.018,z],[0,r()*TAU,0]);
+    }
+  } else if (plantKind === 'seedhead') {
+    for(let i=0;i<4+Math.floor(r()*3);i++){
+      const a=i*2.4,base=[Math.cos(a)*.08,0,Math.sin(a)*.08];
+      const top=[base[0]+.035+r()*.08,.42+r()*.28,base[2]+(r()-.5)*.16];
+      addStem([base,[base[0]+.012,top[1]*.55,base[2]],top],bark,.007,.002,6,3);
+      for(let j=0;j<5;j++){
+        const angle=j/5*TAU,tip=[top[0]+Math.cos(angle)*.075,top[1]+.025+r()*.04,top[2]+Math.sin(angle)*.075];
+        addStem([top,tip],bark,.003,.001,2,3);
+        b.add(new THREE.SphereGeometry(1,5,3),foliage,tip,[0,0,0],[.012,.020,.011]);
+      }
+      if(i%3===0)addSnowFleck(top,.034,.021);
+    }
+  } else if (plantKind === 'grass') {
     const count = 14 + Math.floor(r() * 9);
     for (let i = 0; i < count; i++) {
       const angle = i / count * TAU + (r() - .5) * .55;
@@ -560,13 +605,16 @@ export function buildWinterPlant(palette, { kind = 'grass', type = null, size = 
     grass: { width: .62, depth: .62, height: .78, footprintRadius: .32 },
     reed: { width: .72, depth: .72, height: 1.32, footprintRadius: .37 },
     shrub: { width: 1.24, depth: 1.20, height: 1.16, footprintRadius: .64 },
+    seedhead: { width: .64, depth: .64, height: .82, footprintRadius: .34 },
+    litter: { width: 1.22, depth: 1.22, height: .09, footprintRadius: .63 },
+    twig: { width: 1.10, depth: 1.10, height: .09, footprintRadius: .57 },
   }[plantKind];
   root.scale.setScalar(size);
   root.userData.type = plantKind;
   root.userData.kind = plantKind;
   root.userData.seed = seed;
   root.userData.size = size;
-  root.userData.noAnimation = true;
+  root.userData.noAnimation = plantKind==='litter'||plantKind==='twig';
   root.userData.noCollision = true;
   root.userData.baseDimensions = { ...baseDimensions };
   root.userData.dimensions = { width: baseDimensions.width * size, depth: baseDimensions.depth * size, height: baseDimensions.height * size };
