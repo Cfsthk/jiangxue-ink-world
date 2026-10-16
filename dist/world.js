@@ -1,8 +1,8 @@
 import * as THREE from './vendor/three.module.js';
-import { createBrushMaterials } from './ink-materials.js?v=0.4.0';
-import { buildFishingBoat, buildBrushPine } from './props.js?v=0.4.0';
-import { createRiverMaterial } from './river.js?v=0.4.0';
-import { createMountainSurround } from './mountains.js?v=0.4.0';
+import { createBrushMaterials } from './ink-materials.js?v=0.5.0';
+import { buildFishingBoat, buildBrushPine, buildWinterPlant } from './props.js?v=0.5.0';
+import { createRiverMaterial } from './river.js?v=0.5.0';
+import { createMountainSurround } from './mountains.js?v=0.5.0';
 
 // Walkable terrain, weathered stone, pines and the boat are real 3D.
 // Chinese brush pigments wrap their surfaces; distant paintings complete the view.
@@ -32,6 +32,15 @@ export function createWorld() {
   const pineClearances=[];
   const farPineMaterials = [];
   const pathSamples = [];
+  const pathWidths = [];
+  const pathPaintMaterials = [];
+  const assetState = {pathPaint:false};
+  const pathPaintPlaceholder=new THREE.DataTexture(new Uint8Array([143,145,141,255]),1,1,THREE.RGBAFormat);
+  pathPaintPlaceholder.colorSpace=THREE.SRGBColorSpace;pathPaintPlaceholder.needsUpdate=true;
+  const winterPlants = [];
+  const winterPlantBatches = new Map();
+  const farForestStats = {models:0,sprites:0,variants:{bare:0,crooked:0,upright:0,windswept:0}};
+  const vegetationCounts = {grass:0,reed:0,shrub:0};
   const beachPathSamples = [];
   const pathFootprints = [];
   let maxPathSampleSpacing=0;
@@ -141,16 +150,32 @@ export function createWorld() {
 
   // Thin, irregular washes on a path remain on the same analytic terrain.
   function makePath(waypoints, width=2.4) {
+    const baseWidth=width;width*=1.42;
     const curve = new THREE.CatmullRomCurve3(waypoints.map(p=>new THREE.Vector3(p[0],0,p[1])));
-    const pathPos=[],pathUV=[],pathIndices=[];
-    const count=190;
+    const pathPos=[],pathUV=[],pathIndices=[],surfacePos=[],surfaceUV=[],surfaceIndices=[];
+    const length=curve.getLength(),pathSeed=Math.abs(waypoints[0][0]*.31+waypoints[0][1]*.17)+41;
+    const count=190,columns=7;
+    let minimumWidth=Infinity,maximumWidth=0;
     for(let i=0;i<=count;i++){
       const t=i/count,p=curve.getPoint(t),n=curve.getTangent(t);
-      const wav=1+Math.sin(i*.67)*.10+Math.sin(i*.23)*.07;
+      const distance=t*length;
+      const left=.88+valueNoise3(distance*.16,0,0,pathSeed)*.21+valueNoise3(distance*.57,1,0,pathSeed+7)*.065;
+      const right=.89+valueNoise3(distance*.13,0,1,pathSeed+13)*.20+valueNoise3(distance*.51,1,1,pathSeed+23)*.06;
+      const drift=(valueNoise3(distance*.09,2,0,pathSeed+31)-.5)*width*.09;
+      p.x+=n.z*drift;p.z-=n.x*drift;
       beachPathSamples.push({x:p.x,z:p.z,width});
-      for(const s of [-1,1]){
-        const x=p.x+n.z*width*.5*s*wav,z=p.z-n.x*width*.5*s*wav;
-        pathPos.push(x,heightAt(x,z)+.025,z);pathUV.push(s<0?0:1,t*40);
+      for(const side of [-1,1]){
+        const extent=width*.5*(side<0?left:right)*side;
+        const x=p.x+n.z*extent,z=p.z-n.x*extent;
+        pathPos.push(x,heightAt(x,z)+.035,z);pathUV.push(side<0?0:1,distance);
+      }
+      const index=i*6,ax=pathPos[index],az=pathPos[index+2],bx=pathPos[index+3],bz=pathPos[index+5];
+      const actualWidth=Math.hypot(bx-ax,bz-az);minimumWidth=Math.min(minimumWidth,actualWidth);maximumWidth=Math.max(maximumWidth,actualWidth);
+      // Cross-road subdivisions stay on the snow instead of spanning its hollows.
+      for(let j=0;j<=columns;j++){
+        const u=j/columns,x=ax+(bx-ax)*u,z=az+(bz-az)*u;
+        surfacePos.push(x,heightAt(x,z)+.036,z);surfaceUV.push(u,distance);
+        if(j<columns&&i<count){const a=i*(columns+1)+j,b=a+columns+1;surfaceIndices.push(a,b,a+1,b,b+1,a+1);}
       }
       if(i<count){const a=i*2;pathIndices.push(a,a+2,a+1,a+1,a+2,a+3);}
     }
@@ -167,40 +192,57 @@ export function createWorld() {
       for(let j=0;j<steps;j++){const t=j/steps;pathSamples.push({x:ca.x+(cb.x-ca.x)*t,y:ca.y+(cb.y-ca.y)*t,z:ca.z+(cb.z-ca.z)*t});}
       if(i===count-1)pathSamples.push(cb);
     }
-    const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(pathPos,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(pathUV,2));geo.setIndex(pathIndices);geo.computeVertexNormals();
+    pathWidths.push({baseWidth,scale:1.42,min:minimumWidth,max:maximumWidth,length});
+    const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(surfacePos,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(surfaceUV,2));geo.setIndex(surfaceIndices);geo.computeVertexNormals();
     const mat=new THREE.ShaderMaterial({
+      uniforms:{uPathPaint:{value:pathPaintPlaceholder}},
       transparent:true,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,
-      vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+      vertexShader:`varying vec2 vUv;varying vec3 vWorld;void main(){vUv=uv;vec4 world=modelMatrix*vec4(position,1.);vWorld=world.xyz;gl_Position=projectionMatrix*viewMatrix*world;}`,
       fragmentShader:`
-        varying vec2 vUv;
+        uniform sampler2D uPathPaint;
+        varying vec2 vUv;varying vec3 vWorld;
         float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
         float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
         void main(){
-          float ragged=.09+noise(vec2(vUv.y*.65,1.3))*.10;
-          float edge=smoothstep(0.,ragged,vUv.x)*smoothstep(0.,ragged,1.-vUv.x);
-          float pigment=noise(vec2(vUv.x*8.,vUv.y*1.6));
-          float reserved=smoothstep(.62,.84,noise(vec2(vUv.x*17.,vUv.y*4.)));
-          float dryEdge=smoothstep(.15,.72,noise(vec2(vUv.x*24.,vUv.y*7.)));
-          float alpha=edge*(.29+pigment*.25)*(1.-reserved*.73)*(.70+dryEdge*.30);
-          gl_FragColor=vec4(.31,.32,.315,alpha);
+          float left=.065+noise(vec2(vUv.y*.52,1.3))*.20;
+          float right=.065+noise(vec2(vUv.y*.41,8.6))*.22;
+          float edge=smoothstep(0.,left,vUv.x)*smoothstep(0.,right,1.-vUv.x);
+          float wash=noise(vWorld.xz*.31+vec2(4.1,7.3));
+          float fibre=noise(vec2(vUv.x*29.,vUv.y*.66));
+          float fine=noise(vWorld.xz*9.7);
+          float snow=smoothstep(.68,.87,noise(vWorld.xz*.69+noise(vWorld.xz*.13)));
+          vec3 mud=mix(vec3(.145,.155,.15),vec3(.355,.36,.35),wash*.65+fibre*.35);
+          vec2 cells=vWorld.xz*3.3,cell=floor(cells),f=fract(cells)-.5;
+          vec2 jitter=vec2(hash(cell),hash(cell+17.2))-.5;
+          float pebble=(1.-smoothstep(.08,.25,length(f-jitter*.48)))*step(.58,hash(cell+6.3));
+          vec3 gravel=mix(vec3(.18,.19,.185),vec3(.54,.55,.53),hash(cell+23.4));
+          mud=mix(mud,gravel,pebble*.63);mud+=(fine-.5)*.033;
+          vec2 paintUv=vWorld.xz*.23;
+          vec3 brushA=texture2D(uPathPaint,paintUv).rgb;
+          vec3 brushB=texture2D(uPathPaint,mat2(.819,-.574,.574,.819)*paintUv*.67+vec2(.31,.73)).rgb;
+          float painted=clamp(dot(mix(brushA,brushB,.23),vec3(.299,.587,.114))*.91+.035,.13,.77);
+          mud=mix(mud,vec3(painted),.64);
+          float dry=smoothstep(.12,.72,noise(vec2(vUv.x*41.,vUv.y*3.7)));
+          float alpha=edge*(.48+wash*.22)*(1.-snow*.67)*(.78+dry*.22);
+          gl_FragColor=vec4(mud,alpha);
           #include <colorspace_fragment>
         }
       `,
     });
-    scene.add(new THREE.Mesh(geo,mat));
+    pathPaintMaterials.push(mat);
+    const road=new THREE.Mesh(geo,mat);road.name='灰泥碎礫寬山徑';scene.add(road);
     // Sparse exposed stones follow distance, with varied gaps and partial widths.
     // Keep the world random stream unchanged so rocks and trees do not move.
     let stepSeed=0;
     for(let i=0;i<24;i++){const value=rand();if(i===0)stepSeed=Math.floor(value*4294967296);}
     const stepRand=()=>{stepSeed=(stepSeed*1664525+1013904223)>>>0;return stepSeed/4294967296;};
-    const length=curve.getLength();
     for(let distance=1.5+stepRand()*3.5;distance<length-1.5;distance+=1.6+stepRand()*5.8){
       if(stepRand()>.48)continue;
       const p=curve.getPointAt(distance/length),n=curve.getTangentAt(distance/length);
       const offset=(stepRand()-.5)*width*.40;
       const x=p.x+n.z*offset,z=p.z-n.x*offset;
       const radius=width*(.11+stepRand()*.22),height=.15+stepRand()*.13;
-      const step=makeRockGroup(radius,height,stepRand()*30,false,stoneMaterial);
+      const step=makeRockGroup(radius,height,stepRand()*30,false,stoneMaterial,.44);
       step.scale.set(.82+stepRand()*.43,1,.20+stepRand()*.43);
       step.position.set(x,heightAt(x,z)-.09-stepRand()*.045,z);
       step.rotation.y=Math.atan2(n.x,n.z)+(stepRand()-.5)*.78;
@@ -300,7 +342,7 @@ export function createWorld() {
   }
 
   // A few exposed rocks leave the snow, river and sky generous empty areas.
-  const nearRocks=[[-20,42,1.8,1.5],[-35,51,1.3,.8],[-50,29,1.5,1.6],[-23,18,.9,.65],[-40,3,1.5,1.4],[-53,-17,2.6,2.8],[-39,-25,1.4,1.1],[-19,-39,1.7,1.5],[-12,-19,1.5,1.3],[-5,-29,.8,.7],[-1,-16,1.4,1.2],[-4,-35,1.2,.8],[-8,-28,.55,.4],[-6,-21,.55,.35],[-.2,-28,.8,.6],[-2,-40,1.25,1],[-5,16,1.3,1.2],[-2,29,1.4,1.1],[-68,48,2.8,3.1],[-68,-24,2.3,2.8]];
+  const nearRocks=[[-20,42,1.8,1.5],[-35,51,1.3,.8],[-50,29,1.5,1.6],[-23,18,.9,.65],[-40,3,1.5,1.4],[-57,-11,2.6,2.8],[-39,-25,1.4,1.1],[-19,-39,1.7,1.5],[-12,-19,1.5,1.3],[-5,-29,.8,.7],[-1,-16,1.4,1.2],[-4,-35,1.2,.8],[-8,-28,.55,.4],[-6,-21,.55,.35],[-.2,-28,.8,.6],[-2,-40,1.25,1],[-5,16,1.3,1.2],[-2,29,1.4,1.1],[-68,48,2.8,3.1],[-68,-24,2.3,2.8]];
   nearRocks.forEach(([x,z,r,h])=>addRock(x,z,r,h,stoneMaterial,true,false,r>1.4));
 
   // A cut into the hillside: broad snow ledges above tall, brush-marked faces.
@@ -308,7 +350,7 @@ export function createWorld() {
   for(const [x,z,r,h,yaw] of [
     [-29,-8,4.8,9.4,.15],[-22,-8,3.0,3.7,-.20],[-39,4,3.4,5.2,.32],
     [-48,8,4.5,5.8,-.15],[-53,25,3.6,4.2,.25],[-58,-38,6.0,7.2,.40],
-    [-37,-53,4.0,5.0,-.30],
+    [-34,-58,4.0,5.0,-.30],
   ]){
     const ledge=addRock(x,z,r,h,cliffMaterial,true,false,true);ledge.rotation.y=yaw;
   }
@@ -343,16 +385,24 @@ export function createWorld() {
     }
     farPineMaterials.push(material);return material;
   }
-  // Twenty-six brush pines form loose, unequal groups on the opposite land.
-  let farSeed=83317;
+  // Loose far-shore groups mix bare 3D trees and differently proportioned paint.
+  let farSeed=83317,farTreeIndex=0;
   const farRand=()=>{farSeed=(farSeed*1664525+1013904223)>>>0;return farSeed/4294967296;};
   for(const [centre,count] of [[-160,2],[-118,4],[-74,3],[-32,4],[18,3],[65,4],[112,3],[160,3]]){
-    for(let i=0;i<count;i++){
+    for(let i=0;i<count;i++,farTreeIndex++){
       const z=centre+(farRand()-.5)*24,inland=7+farRand()*19,h=6+farRand()*5,x=farBankAt(z)+inland;
-      const geometry=new THREE.PlaneGeometry(h*1.5,h);geometry.translate(h*1.5*.15,h*.43,0);
-      const tree=new THREE.Mesh(geometry,farPineMaterial(false,.76+farRand()*.09));
-      tree.position.set(x,farHeightAt(x,z),z);tree.rotation.y=-Math.PI/2+(farRand()-.5)*.25;
-      tree.name='對岸淡墨疏松';scene.add(tree);
+      if(farTreeIndex%6===0){
+        const variant=farTreeIndex%12===0?'bare':'crooked';
+        const tree=buildBrushPine(palette,{size:h/(variant==='bare'?5.08:5.35),seed:83317+farTreeIndex*71,variant});
+        tree.position.set(x,farHeightAt(x,z)-.08,z);tree.rotation.y=-Math.PI/2+(farRand()-.5)*1.1;
+        tree.name='對岸枯枝立體樹';scene.add(tree);farForestStats.models++;farForestStats.variants[variant]++;
+      }else{
+        const ratio=1.14+farRand()*.64,geometry=new THREE.PlaneGeometry(h*ratio,h);geometry.translate(h*ratio*.15,h*.43,0);
+        const tree=new THREE.Mesh(geometry,farPineMaterial(false,.76+farRand()*.09));
+        tree.position.set(x,farHeightAt(x,z),z);tree.rotation.y=-Math.PI/2+(farRand()-.5)*.32;
+        if(farTreeIndex%2)tree.scale.x=-1;
+        tree.name='對岸淡墨疏松';scene.add(tree);farForestStats.sprites++;
+      }
     }
   }
 
@@ -462,7 +512,9 @@ export function createWorld() {
   function addPine(x,z,size=1,interactive=false,onRock=false){
     const requested={x,z},mainPine=x===-23.7&&z===-5,site=findPineSite(x,z,size);if(!site)return null;
     x=site.x;z=site.z;
-    const tree=buildBrushPine(palette,{size,seed:Math.floor(rand()*100000)});
+    const variants=['windswept','upright','crooked','bare'];
+    const variant=variants[pines.length%variants.length];
+    const tree=buildBrushPine(palette,{size,seed:Math.floor(rand()*100000),variant});
     tree.position.set(x,heightAt(x,z)+(onRock?1.5:0),z);
     tree.rotation.y=mainPine?-.60:rand()*TAU;
     // Low roots follow this slope, so their tips remain buried in the snow.
@@ -485,15 +537,18 @@ export function createWorld() {
     });
     // Nearby trunks retain full 3D detail; distant trees use one brush sprite.
     const detail=new THREE.Group();[...tree.children].forEach(part=>detail.add(part));
-    const lod=new THREE.LOD(),painted=new THREE.Sprite(farPineMaterial(true,.85));
-    painted.center.set(.35,.07);painted.scale.set(9.9,6.6,1);
-    lod.addLevel(detail,0);lod.addLevel(painted,72);tree.add(lod);tree.userData.paintedSprite=painted;
+    if(variant==='bare')tree.add(detail);
+    else{
+      const lod=new THREE.LOD(),painted=new THREE.Sprite(farPineMaterial(true,.85));
+      painted.center.set(.35,.07);painted.scale.set(tree.userData.baseDimensions.height*1.5,tree.userData.baseDimensions.height,1);
+      lod.addLevel(detail,0);lod.addLevel(painted,72);tree.add(lod);tree.userData.paintedSprite=painted;
+    }
     const clearance=pathClearanceAt(x,z),id=`pine-${String(pines.length+1).padStart(2,'0')}`;
-    tree.userData.planting={id,requested,x,z,pathClearance:clearance};pineClearances.push({id,requested:{...requested},x,z,clearance});
+    tree.userData.planting={id,requested,x,z,variant,pathClearance:clearance};pineClearances.push({id,requested:{...requested},x,z,variant,clearance});
     scene.add(tree);addContactWash(x,z,1.05*size,randomSeed*.001,.17,1.30);
     tree.userData.baseRotation=tree.rotation.z;tree.userData.swayPhase=rand()*TAU;tree.userData.shake=0;
     pines.push(tree);collisions.push({x,z,r:.48*size});
-    if(interactive)interactables.push({id:`pine-${interactables.length}`,type:'pine',position:tree.position.clone().add(new THREE.Vector3(0,1.3*size,0)),radius:3.7,label:'輕觸松枝',object:tree});
+    if(interactive)interactables.push({id:`pine-${interactables.length}`,type:'pine',position:tree.position.clone().add(new THREE.Vector3(0,1.3*size,0)),radius:3.7,label:variant==='bare'?'輕碰枯枝':'輕觸松枝',object:tree});
     return tree;
   }
   addPine(-39,48,1.25,true);
@@ -513,6 +568,63 @@ export function createWorld() {
   extraPineCandidates.forEach(([x,z],i)=>addPine(x,z,.74+(i%4)*.11,i%5===0));
   // Additional near-land pines stay sparse and alternate in height.
   [[-34,65],[-17,56],[-8,24],[-21,17],[-43,7],[-57,3],[-64,53],[-65,-43],[-54,-55],[-34,-60],[-21,-34],[-7,-47]].forEach(([x,z],i)=>addPine(x,z,.70+(i%5)*.105,i%6===0));
+  [[-43,55],[-24,46],[-11,13],[-31,0],[-58,-51],[-42,-65],[-14,-56],[-63,23]].forEach(([x,z],i)=>addPine(x,z,.68+(i%4)*.12,i%5===0));
+  // Small winter plants are merged by shared material: many clumps, few draws.
+  let plantSeed=192731;
+  const plantRand=()=>{plantSeed=(plantSeed*1664525+1013904223)>>>0;return plantSeed/4294967296;};
+  function queueWinterPlant(type,x,z,size,far=false){
+    const seed=Math.floor(plantRand()*1000000),plant=buildWinterPlant(palette,{kind:type,size,seed});
+    plant.updateMatrixWorld(true);
+    const bounds=new THREE.Box3().setFromObject(plant);
+    const radius=Math.max(plant.userData.footprintRadius||0,Math.hypot(Math.max(Math.abs(bounds.min.x),Math.abs(bounds.max.x)),Math.max(Math.abs(bounds.min.z),Math.abs(bounds.max.z))));
+    const clearance=pathClearanceAt(x,z);
+    if(clearance<radius+.38)return false;
+    if(far){if(x<farBankAt(z)+radius*1.3+.65)return false;}
+    else{
+      if(x<-71||z<-71||z>67||x>bank(z)-radius*1.3-.65||!canWalk(x,z))return false;
+      if(collisions.some(c=>Math.hypot(x-c.x,z-c.z)<c.r+radius+.12))return false;
+    }
+    if(winterPlants.some(p=>p.far===far&&Math.hypot(x-p.x,z-p.z)<(p.radius+radius)*.75))return false;
+    plant.position.set(x,far?farHeightAt(x,z):heightAt(x,z),z);plant.rotation.y=plantRand()*TAU;plant.updateMatrixWorld(true);
+    plant.traverse(part=>{
+      if(!part.isMesh||part.isInstancedMesh||Array.isArray(part.material))return;
+      let geometry=part.geometry.clone();geometry.applyMatrix4(part.matrixWorld);
+      if(geometry.index){const flat=geometry.toNonIndexed();geometry.dispose();geometry=flat;}
+      if(!winterPlantBatches.has(part.material))winterPlantBatches.set(part.material,[]);
+      winterPlantBatches.get(part.material).push(geometry);
+    });
+    winterPlants.push({type,x,z,size,far,radius,clearance});vegetationCounts[type]++;return true;
+  }
+  for(let i=2;i<pathFootprints.length;i+=7+Math.floor(plantRand()*9)){
+    const quad=pathFootprints[i],centre={x:quad.points.reduce((n,p)=>n+p.x,0)/4,z:quad.points.reduce((n,p)=>n+p.z,0)/4};
+    for(const side of [0,1]){
+      if(plantRand()>.78)continue;
+      const a=quad.points[side],b=quad.points[side===0?3:2],ex=(a.x+b.x)*.5,ez=(a.z+b.z)*.5;
+      const dx=ex-centre.x,dz=ez-centre.z,length=Math.hypot(dx,dz)||1;
+      const type=plantRand()<.17?'shrub':'grass',size=type==='shrub'?.55+plantRand()*.40:.48+plantRand()*.52;
+      const offset=.95+plantRand()*1.4,x=ex+dx/length*offset,z=ez+dz/length*offset;
+      queueWinterPlant(type,x,z,size,false);
+    }
+  }
+  for(let z=-68;z<67;z+=3.5+plantRand()*3.5){
+    for(let j=0;j<2;j++){
+      const zz=z+(plantRand()-.5)*2,type=plantRand()<.67?'reed':plantRand()<.65?'grass':'shrub';
+      queueWinterPlant(type,bank(zz)-1.7-plantRand()*4.5,zz,.72+plantRand()*.52,false);
+    }
+  }
+  for(let z=-174;z<179;z+=7+plantRand()*6){
+    const type=plantRand()<.76?'reed':'shrub';
+    queueWinterPlant(type,farBankAt(z)+1.8+plantRand()*5.5,z,1.0+plantRand()*.55,true);
+  }
+  let vegetationBatchCount=0;
+  for(const [material,pieces] of winterPlantBatches){
+    const count=pieces.reduce((n,g)=>n+g.attributes.position.count,0),positions=new Float32Array(count*3),normals=new Float32Array(count*3),uv=new Float32Array(count*2);
+    let offset=0;
+    for(const geometry of pieces){const n=geometry.attributes.position.count;positions.set(geometry.attributes.position.array,offset*3);normals.set(geometry.attributes.normal.array,offset*3);if(geometry.attributes.uv)uv.set(geometry.attributes.uv.array,offset*2);offset+=n;geometry.dispose();}
+    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));geometry.setAttribute('normal',new THREE.BufferAttribute(normals,3));geometry.setAttribute('uv',new THREE.BufferAttribute(uv,2));geometry.computeBoundingSphere();
+    const mesh=new THREE.Mesh(geometry,material);mesh.name='冬草蘆葦枯灌木・材質合批';scene.add(mesh);vegetationBatchCount++;
+  }
+  winterPlantBatches.clear();
   const boat=buildFishingBoat(palette);
   boat.position.set(17,.10,-30);boat.rotation.y=-.24;boat.name='孤舟';scene.add(boat);
   boat.userData.initialY=boat.position.y;
@@ -552,9 +664,9 @@ export function createWorld() {
   }
   function update(dt,time,player){
     riverMaterial.uniforms.uTime.value=time;
-    boat.position.y=boat.userData.initialY+Math.sin(time*.68)*.027;
-    boat.rotation.z=Math.sin(time*.49)*.009;
-    boat.rotation.x=Math.cos(time*.57)*.007;
+    boat.position.y=boat.userData.initialY+Math.sin(time*.52)*.085;
+    boat.rotation.z=Math.sin(time*.40)*.014;
+    boat.rotation.x=Math.cos(time*.43)*.009;
     pines.forEach(tree=>{
       const elapsed=performance.now()/1000-(tree.userData.shake||-100);
       const shake=Math.max(0,1-elapsed/1.2);
@@ -569,13 +681,17 @@ export function createWorld() {
     if(geometry?.attributes.position&&!geometry.attributes.snowHeight)geometry.setAttribute('snowHeight',new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count),1));
   });
   const loader=new THREE.TextureLoader();
+  const pathPaintReady=loader.loadAsync(new URL('./assets/brush-path.png',import.meta.url).href).then(texture=>{
+    texture.colorSpace=THREE.SRGBColorSpace;texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.anisotropy=8;
+    pathPaintMaterials.forEach(material=>{material.uniforms.uPathPaint.value=texture;});assetState.pathPaint=true;
+  });
   const ready=Promise.all([
-    palette.ready,mountainSurround.ready,
+    palette.ready,mountainSurround.ready,pathPaintReady,
     loader.loadAsync(new URL('./assets/ink-pine.png',import.meta.url).href),
-  ]).then(([, ,pineTexture])=>{
+  ]).then(([, , ,pineTexture])=>{
     pineTexture.colorSpace=THREE.SRGBColorSpace;pineTexture.anisotropy=4;
     farPineMaterials.forEach(material=>{material.map=pineTexture;material.needsUpdate=true;});
   });
   const landmarks={summit:{x:-46,z:-12},shore:{x:-4,z:-24},forest:{x:-48,z:37}};
-  return {scene,ready,spawn:{x:-25,z:9,yaw:-0.60,pitch:0.01},heightAt,canWalk,zoneAt,interactables,boat,update,landmarks,pineClearances,pathSampling:{count:pathSamples.length,maxSpacing:maxPathSampleSpacing,mode:'rendered-road-footprint'}};
+  return {scene,ready,spawn:{x:-25,z:9,yaw:-0.60,pitch:0.01},heightAt,canWalk,zoneAt,interactables,boat,update,landmarks,pineClearances,pathSampling:{count:pathSamples.length,maxSpacing:maxPathSampleSpacing,mode:'rendered-road-footprint'},pathWidths:Object.freeze(pathWidths),assetState,vegetationStats:Object.freeze({counts:{...vegetationCounts},clumps:winterPlants.length,batches:vegetationBatchCount,minRoadClearance:Math.min(...winterPlants.map(p=>p.clearance))}),vegetationPlacements:Object.freeze(winterPlants),farForestStats:Object.freeze(farForestStats),treeVariantCounts:Object.freeze(pineClearances.reduce((counts,p)=>(counts[p.variant]=(counts[p.variant]||0)+1,counts),{}))};
 }

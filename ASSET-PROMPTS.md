@@ -56,3 +56,33 @@ Materials/textures: visible layered dry-brush and wet-ink washes, irregular brok
 Text (verbatim): none.
 Constraints: true transparent alpha background; transparent top, bottom, and outer side margins; bottom mist fade fully transparent; standalone mountain panorama only; keep every mountain group broad and rounded; preserve clear separation between near/middle/far ink layers.
 Avoid: sky, paper texture, parchment, solid white background, river, water, shoreline, rocks, canyon, boat, fisherman, characters, buildings, roads, text, logos, frame, border, flat opaque rectangle, photorealism, realistic landscape photography, 3D render, thin needle-like peaks, sharp repeated triangles, all peaks the same height, mountain silhouettes cut off at the edges.
+
+
+## brush-path.png（冬泥碎礫路面）
+
+模式：內建 imagegen（首次生成後一次針對性水墨化編輯）；不使用 CLI。最終採用第二張實際生成的方形圖片，保留原始輸出，複製到 `dist/assets/brush-path.png`。此素材為中性灰路面 albedo，供世界座標重複貼圖使用；沒有道路外形、透視、白邊或鋪磚行列。
+
+### 首次生成提示（原文）
+
+Use case: stylized-concept
+Asset type: seamless square top-down ALBEDO MATERIAL TEXTURE for a winter mud-and-gravel footpath in a Chinese ink-wash Three.js game.
+Primary request: create a flat, edge-to-edge, tileable hand-painted pigment surface of exposed winter mud, charcoal-gray and stone-gray fine crushed gravel, scattered tiny snow grains, and irregular dry-brush ink fibres. This is ONLY the road's surface skin; the game geometry provides the road shape.
+Style/medium: detailed traditional Chinese brush painting, diluted neutral gray wet ink washes overlaid with expressive broken dry-brush bristle marks, soft ink blooms, little irregular mottled patches, very fine hand-painted gravel dabs and scumbled winter mud. It must look painted by hand in ink, not photographed, not a 3D render, and not a uniform cartoon fill.
+Composition/framing: exact square canvas, perfectly overhead orthographic material swatch, entire frame covered by the same continuous ground surface. Balanced non-directional distribution of marks at small and medium scales, no central subject, no decorative composition, no visible path perimeter. All four edges should join seamlessly when repeated.
+Color palette: strictly neutral greys. Predominantly muted medium stone-gray and charcoal-gray exposed ground, with restrained darker gray broken ink accents and occasional light-gray or near-white tiny snow grains. Overall medium grey, never solid black; avoid a white paper base. Sparse snow flecks must not become large white patches. No brown, tan, yellow, blue, green or saturated color. The shader will control final brightness.
+Materials/textures: diffuse painted albedo only, even lighting, no baked cast shadows, no shiny wet highlights. Gravel should be fine crushed irregular grains distributed naturally, not large cobblestones. Preserve soft hand-painted irregularity and delicate fibre detail for close-up gameplay.
+Constraints: no road outline, no perspective, no vanishing point, no paving rows, no grid, no repeated board or tile pattern, no border, no white-background margins, no empty white corners, no isolated object, no trees, leaves, roots, branches, buildings, people, footprints, river, mountain, text, lettering, signature, logo, seal, frame, or watermark. Opaque seamless texture, no transparency.
+
+### 最終選用編輯提示（原文）
+
+Use case: style-transfer
+Asset type: seamless square top-down hand-painted Chinese ink albedo for a 3D winter mud-and-gravel path.
+Input image: Image 1 is the edit target, the first generated neutral grey ground texture.
+Primary request: keep the same square full-coverage overhead neutral grey mud-and-fine-gravel material and sparse light snow grains, but repaint it much more clearly as traditional Chinese ink brushwork. The current fine texture looks too close to a photograph. Replace photographic-looking pebble modelling with irregular short charcoal-grey brush-tip dabs, simplified stone-grey gravel flecks, scumbled drybrush fibres, and broad soft wet-ink blooms. Use about 10 to 16 loose medium-scale overlapping brush washes across the image, with detailed broken bristle marks inside them. Make individual gravel marks flat expressive ink dabs with no realistic cast shadows or glossy surfaces.
+Invariants: seamless tileable square; no visible road perimeter, no perspective, no scene, no central object, no paving grid or rows, no white-background margins. Entire canvas remains a continuous muted medium-grey ground sheet, neither white paper nor solid black. Keep strictly neutral charcoal-grey, stone-grey, light-grey and occasional tiny off-white snow grains; no brown or other color. Even diffuse albedo, no baked lighting.
+Style/medium: authentic detailed Chinese shui-mo painting, wet and dry ink on paper, expressive soft irregular brush edges, small pale broken gaps distributed throughout the grey. It should look visibly painted from every viewing distance, not like a desaturated gravel photo and not like a 3D render.
+Avoid: large white snow patches, blank white border, texture vignette, path outline, tree, leaf, root, footprints, object, text, logo, signature, stamp, frame or watermark.
+
+輸入編輯目標：首次生成的中性灰冬泥碎礫材質。
+最終原始檔：`/Users/charles/.codex/generated_images/01a13e90-6325-7902-92bb-8c7752a906a2/exec-3f31b823-0e94-4a1f-9564-0ec958d9c490.png`。
+建議：世界座標約 0.23 repeats/m，疊加旋轉的低強度第二次取樣，以約 0.6 權重融入道路墨洗；依近景調整。

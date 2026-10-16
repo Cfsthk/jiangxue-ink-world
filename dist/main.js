@@ -1,7 +1,7 @@
 import * as THREE from './vendor/three.module.js';
-import { createWorld } from './world.js?v=0.4.0';
-import { Soundscape } from './audio.js?v=0.4.0';
-import { InkWash } from './wash.js?v=0.4.0';
+import { createWorld } from './world.js?v=0.5.0';
+import { Soundscape } from './audio.js?v=0.5.0';
+import { InkWash } from './wash.js?v=0.5.0';
 
 const $ = id => document.getElementById(id);
 const canvas = $('world');
@@ -18,9 +18,9 @@ const joy = { x: 0, y: 0, id: null };
 let renderer, camera, world, wash;
 let lastTime = performance.now(), footDistance = 0, lastPlayer = null, feedbackTimer, callTime = -100, interactionTime = -100;
 let drag = null, focusUntil = 0, frameSamples = 0, fpsTime = 0;
+let nextFoot = 1, snowCount = 0;
 const footprints = [], effects = [];
 const effectRoot = new THREE.Group();
-const footGeometry = new THREE.PlaneGeometry(.13, .28);
 const rippleGeometry = new THREE.RingGeometry(.97, 1, 64);
 
 // ponytail: native DOM controls and one render loop suffice; no UI framework or physics engine.
@@ -72,9 +72,10 @@ function restart() {
   player.y = world.heightAt(player.x, player.z) + 1.65;
   player.vx = player.vz = 0;
   lastPlayer = { x: player.x, z: player.z };
-  for (const footprint of footprints) { effectRoot.remove(footprint.mesh); footprint.mesh.material.dispose(); }
+  for (const footprint of footprints) { effectRoot.remove(footprint.mesh); footprint.mesh.geometry.dispose(); footprint.mesh.material.dispose(); }
   footprints.length = 0;
   footDistance = 0;
+  nextFoot = 1;
   focusUntil = 0;
   closeMenu();
 }
@@ -97,26 +98,46 @@ async function start() {
 }
 
 function makeFootTexture() {
-  const c = document.createElement('canvas'); c.width = 64; c.height = 128;
+  const c = document.createElement('canvas'); c.width = 128; c.height = 224;
   const ctx = c.getContext('2d');
-  const gradient = ctx.createRadialGradient(32, 60, 4, 32, 60, 49);
-  gradient.addColorStop(0, 'rgba(92,103,103,.65)'); gradient.addColorStop(1, 'rgba(92,103,103,0)');
-  ctx.fillStyle = gradient; ctx.translate(0, 24); ctx.scale(1, 1.5); ctx.beginPath(); ctx.ellipse(32, 33, 24, 34, 0, 0, Math.PI * 2); ctx.fill();
+  // Two soft depressions, broken by paper grain, rather than a stamped black sole.
+  ctx.shadowColor = 'rgba(88,102,106,.48)'; ctx.shadowBlur = 9;
+  ctx.fillStyle = 'rgba(104,116,119,.68)';
+  ctx.beginPath(); ctx.moveTo(38,30); ctx.bezierCurveTo(46,14,83,15,94,37);
+  ctx.bezierCurveTo(106,65,91,109,82,135); ctx.bezierCurveTo(76,148,46,148,37,130);
+  ctx.bezierCurveTo(28,104,25,53,38,30); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(61,174,25,24,-.08,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(243,245,241,.66)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(32,47); ctx.bezierCurveTo(25,82,33,120,40,134); ctx.stroke();
+  for (let i=0;i<180;i++) {
+    const x=(Math.sin(i*71.3)*.5+.5)*128, y=(Math.sin(i*37.7+2)*.5+.5)*224;
+    ctx.clearRect(x,y,1.5+(i%3),1+(i%2));
+  }
   return new THREE.CanvasTexture(c);
 }
 const footTexture = makeFootTexture();
 
 function addFootprint() {
-  const side = footprints.length % 2 ? -1 : 1;
-  const x = player.x + Math.cos(player.yaw) * .15 * side;
-  const z = player.z - Math.sin(player.yaw) * .15 * side;
-  const material = new THREE.MeshBasicMaterial({ map: footTexture, transparent: true, opacity: .12, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
-  const mesh = new THREE.Mesh(footGeometry, material);
-  mesh.rotation.set(-Math.PI / 2, 0, -player.yaw);
-  mesh.position.set(x, world.heightAt(x, z) + .027, z);
+  const side = nextFoot; nextFoot *= -1;
+  const heading = Math.atan2(-player.vx, -player.vz) + side * .055;
+  const rightX = Math.cos(heading), rightZ = -Math.sin(heading);
+  const forwardX = -Math.sin(heading), forwardZ = -Math.cos(heading);
+  const x = player.x + rightX * .135 * side - forwardX * .14;
+  const z = player.z + rightZ * .135 * side - forwardZ * .14;
+  const geometry = new THREE.PlaneGeometry(.21, .38, 2, 4);
+  const p = geometry.attributes.position;
+  for (let i=0;i<p.count;i++) {
+    const across=p.getX(i), along=p.getY(i);
+    const px=x+across*rightX+along*forwardX, pz=z+across*rightZ+along*forwardZ;
+    p.setXYZ(i,px,world.heightAt(px,pz)+.022,pz);
+  }
+  geometry.computeVertexNormals();
+  const material = new THREE.MeshBasicMaterial({ map: footTexture, transparent: true, opacity: .64, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(geometry, material);
   effectRoot.add(mesh);
   footprints.push({ mesh, born: state.time });
-  if (footprints.length > 100) { const old = footprints.shift(); effectRoot.remove(old.mesh); old.mesh.material.dispose(); }
+  if (footprints.length > 140) { const old = footprints.shift(); effectRoot.remove(old.mesh); old.mesh.geometry.dispose(); old.mesh.material.dispose(); }
   sound.step();
 }
 
@@ -196,8 +217,8 @@ function detectInteraction() {
 function updateEffects(dt) {
   for (let i = footprints.length - 1; i >= 0; i--) {
     const foot = footprints[i], age = state.time - foot.born;
-    foot.mesh.material.opacity = .12 * Math.max(0, 1 - age / 20);
-    if (age > 20) { effectRoot.remove(foot.mesh); foot.mesh.material.dispose(); footprints.splice(i, 1); }
+    foot.mesh.material.opacity = .64 * (1 - THREE.MathUtils.smoothstep(age, 2, 21));
+    if (age > 21) { effectRoot.remove(foot.mesh); foot.mesh.geometry.dispose(); foot.mesh.material.dispose(); footprints.splice(i, 1); }
   }
   for (let i = effects.length - 1; i >= 0; i--) {
     const e = effects[i]; e.age += dt;
@@ -239,7 +260,7 @@ function move(dt) {
   if (world.canWalk(player.x, nextZ)) player.z = nextZ; else player.vz = 0;
   const distance = lastPlayer ? Math.hypot(player.x - lastPlayer.x, player.z - lastPlayer.z) : 0;
   footDistance += distance;
-  if (footDistance > .94) { addFootprint(); footDistance = 0; }
+  if (footDistance > .74) { addFootprint(); footDistance %= .74; }
   lastPlayer = { x: player.x, z: player.z };
   player.y = THREE.MathUtils.damp(player.y, world.heightAt(player.x, player.z) + 1.65, 14, dt);
   player.yaw = THREE.MathUtils.damp(player.yaw, player.targetYaw, 12, dt);
@@ -251,15 +272,50 @@ function move(dt) {
 }
 
 function addWeather() {
-  const count = matchMedia('(pointer:coarse)').matches ? 260 : 550;
-  const positions = new Float32Array(count * 3), speed = [];
-  for (let i = 0; i < count; i++) { positions.set([(Math.random() - .5) * 100, Math.random() * 52, (Math.random() - .5) * 100], i * 3); speed.push(.3 + Math.random() * .5); }
+  const count = matchMedia('(pointer:coarse)').matches ? 2600 : 4600;
+  snowCount = count;
+  const positions = new Float32Array(count * 3), sizes = new Float32Array(count), phases = new Float32Array(count), speed = [];
+  for (let i = 0; i < count; i++) {
+    positions.set([player.x+(Math.random()-.5)*72,player.y-10+Math.random()*38,player.z+(Math.random()-.5)*72],i*3);
+    sizes[i]=.035+Math.pow(Math.random(),2)*.10;
+    phases[i]=Math.random()*Math.PI*2;
+    speed.push(.65+Math.random()*1.10);
+  }
   const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const snow = new THREE.Points(geometry, new THREE.PointsMaterial({ color: '#ffffff', size: .065, transparent: true, opacity: .65, depthWrite: false, sizeAttenuation: true }));
+  geometry.setAttribute('aSize',new THREE.BufferAttribute(sizes,1));
+  geometry.setAttribute('aPhase',new THREE.BufferAttribute(phases,1));
+  const material = new THREE.ShaderMaterial({
+    transparent:true,depthWrite:false,
+    uniforms:{uScale:{value:innerHeight*renderer.getPixelRatio()*.94}},
+    vertexShader:`attribute float aSize; attribute float aPhase; uniform float uScale;
+      varying float vAlpha; varying float vPhase;
+      void main(){ vec4 p=modelViewMatrix*vec4(position,1.); gl_Position=projectionMatrix*p;
+        gl_PointSize=clamp(aSize*uScale/max(1.,-p.z),1.2,15.);
+        vAlpha=(.44+.26*sin(aPhase*2.3))*(1.-smoothstep(12.,45.,-p.z)); vPhase=aPhase; }`,
+    fragmentShader:`varying float vAlpha; varying float vPhase;
+      void main(){vec2 p=gl_PointCoord-.5; float a=atan(p.y,p.x);
+        float r=length(p)+.025*sin(a*5.+vPhase)+.018*sin(a*9.);
+        float alpha=(1.-smoothstep(.16,.5,r))*vAlpha;
+        if(alpha<.008)discard; gl_FragColor=vec4(vec3(.98,.985,.977),alpha);
+        #include <colorspace_fragment>
+      }`
+  });
+  const snow = new THREE.Points(geometry, material);
   snow.frustumCulled = false; world.scene.add(snow);
   return dt => {
-    for (let i = 0; i < count; i++) { positions[i * 3] += dt * .15; positions[i * 3 + 1] -= dt * speed[i]; if (positions[i * 3 + 1] < -2) positions[i * 3 + 1] = 52; if (positions[i * 3] > 50) positions[i * 3] = -50; }
-    snow.position.x = player.x; snow.position.z = player.z; geometry.attributes.position.needsUpdate = true;
+    const drift=.24+Math.sin(state.time*.29)*.14, motion=reducedMotion ? .5 : 1;
+    for (let i = 0; i < count; i++) {
+      const j=i*3;
+      positions[j]+=dt*(drift+Math.sin(state.time*.65+phases[i])*.13)*motion;
+      positions[j+1]-=dt*speed[i]*motion;
+      positions[j+2]+=dt*Math.sin(phases[i]+state.time*.36)*.08*motion;
+      if(positions[j+1]<player.y-10)positions[j+1]=player.y+28;
+      if(positions[j+1]>player.y+28)positions[j+1]=player.y-10;
+      if(positions[j]>player.x+36)positions[j]-=72; else if(positions[j]<player.x-36)positions[j]+=72;
+      if(positions[j+2]>player.z+36)positions[j+2]-=72; else if(positions[j+2]<player.z-36)positions[j+2]+=72;
+    }
+    material.uniforms.uScale.value=innerHeight*renderer.getPixelRatio()*.94;
+    geometry.attributes.position.needsUpdate = true;
   };
 }
 
@@ -311,7 +367,7 @@ function init() {
       console.error('水墨素材載入失敗', error);
       $('load-status').textContent = '水墨素材未能載入，請重新整理再試。';
     });
-    window.__JIANGXUE__ = Object.freeze({ getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, effects: effects.length }) });
+    window.__JIANGXUE__ = Object.freeze({ getState: () => ({ ready: state.ready, started: state.started, paused: state.paused, entering: state.entering, muted: state.muted, zone: state.zone, fps: state.fps, x: player.x, y: player.y, z: player.z, yaw: player.yaw, pitch: player.pitch, target: state.target?.type, landmarks: world.landmarks, renderer: renderer.info.render, footprints: footprints.length, footprintOpacity: footprints.map(f=>Number(f.mesh.material.opacity.toFixed(3))), snowflakes:snowCount, effects: effects.length }) });
   } catch (error) {
     console.error('江雪世界載入失敗', error);
     $('start-label').textContent = '重新載入'; $('start').disabled = false;

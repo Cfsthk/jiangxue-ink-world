@@ -10,10 +10,10 @@ export function createRiverMaterial() {
     uniforms: {
       uTime: { value: 0 },
       // THREE.Color converts these sRGB art colours to shader linear space.
-      uWater: { value: new THREE.Color('#c9dce0') },
-      uWash: { value: new THREE.Color('#d1d4d1') },
-      uInk: { value: new THREE.Color('#94acb0') },
-      uPaper: { value: new THREE.Color('#fcfcf8') },
+      uWater: { value: new THREE.Color('#becfd4') },
+      uWash: { value: new THREE.Color('#c7ccca') },
+      uInk: { value: new THREE.Color('#8da5ab') },
+      uLightWash: { value: new THREE.Color('#d5dfdf') },
       uShoreMist: { value: new THREE.Color('#f4f4ef') },
     },
     vertexShader: /* glsl */`
@@ -32,7 +32,7 @@ export function createRiverMaterial() {
       uniform vec3 uWater;
       uniform vec3 uWash;
       uniform vec3 uInk;
-      uniform vec3 uPaper;
+      uniform vec3 uLightWash;
       uniform vec3 uShoreMist;
       varying vec3 vRiverWorld;
       varying float vRiverDepth;
@@ -57,14 +57,14 @@ export function createRiverMaterial() {
       void main() {
         float t = uTime;
         vec2 p = vRiverWorld.xz;
-        // The current runs down the river at 0.21 m/s. A short observation
+        // The current runs down the river at 0.23 m/s. A short observation
         // reveals the moving broken strokes, without rapid shimmer or waves.
-        vec2 flow = p - vec2(t * 0.046, t * 0.205);
+        vec2 flow = p - vec2(t * 0.050, t * 0.220);
         flow.x += sin(p.y * 0.028 + t * 0.12) * 0.34;
 
-        // Three substantial paint regions: blue wash, neutral grey wash and
-        // genuinely blank paper. Anisotropic domain warping stretches their
-        // irregular shapes along the river instead of making blue-on-blue noise.
+        // Three substantial paint regions are all grey or grey-blue, including
+        // the lightest wash. The river contains no white paper core or bright
+        // highlight. Domain warping keeps the painted patches irregular.
         vec2 regionUV = flow * vec2(0.112, 0.030);
         regionUV.x += sin(regionUV.y * 1.71 + t * 0.065) * 0.34;
         regionUV.y += sin(regionUV.x * 1.33) * 0.13;
@@ -77,63 +77,59 @@ export function createRiverMaterial() {
         float edgeFibre = softNoise(flow * vec2(1.9, 0.71) + vec2(51.0, 6.0));
         float region = broad * 0.78 + wash * 0.22
                      + (bleed - 0.5) * 0.085 + (edgeFibre - 0.5) * 0.029;
-        // Wet-on-wet transitions are about three times wider than the former
-        // colour boundaries, with large pure-colour reserves inside the washes.
+        // Broad wet-on-wet transitions and frayed light-grey wash edges.
         float blueRegion = 1.0 - smoothstep(0.325, 0.515, region);
-        float paperRegion = smoothstep(0.438, 0.632, region);
-        float paperBites = smoothstep(0.62, 0.82, bleed)
+        float lightRegion = smoothstep(0.438, 0.632, region);
+        float lightBites = smoothstep(0.62, 0.82, bleed)
                          * smoothstep(0.43, 0.54, region) * 0.32;
-        paperRegion = min(1.0 - blueRegion, paperRegion + (1.0 - paperRegion) * paperBites);
-        float greyRegion = max(0.0, 1.0 - blueRegion - paperRegion);
-        vec3 color = uWater * blueRegion + uWash * greyRegion + uPaper * paperRegion;
+        lightRegion = min(1.0 - blueRegion, lightRegion + (1.0 - lightRegion) * lightBites);
+        float greyRegion = max(0.0, 1.0 - blueRegion - lightRegion);
+        vec3 color = uWater * blueRegion + uWash * greyRegion + uLightWash * lightRegion;
 
-        // A restrained ink bloom inside the washes adds depth while keeping
-        // the paper patches white; it is not a surface shine or reflection map.
+        // Thin ink bloom and fine pigment remain visible inside every shade,
+        // including the light-grey regions; none of them is blank white.
         float pigment = softNoise(flow * vec2(0.26, 0.074) + vec2(11.0, 36.0));
-        color = mix(color, uInk, (1.0 - paperRegion) * smoothstep(0.56, 0.86, pigment) * 0.065);
-        // A continuous thin stain and tiny dry-ink flecks stop each colour
-        // reserve looking like an untextured sheet of ice. High paper cores
-        // remain untouched, preserving actual white instead of tinting it grey.
-        float paperCore = smoothstep(0.64, 0.70, region);
+        color = mix(color, uInk, smoothstep(0.52, 0.86, pigment) * 0.075);
         float thinStain = softNoise(flow * vec2(2.7, 0.93) + vec2(7.0, 61.0));
         float inkFlecks = smoothstep(0.57, 0.82, softNoise(flow * vec2(6.1, 2.2) + vec2(27.0, 17.0)));
-        float stain = (0.007 + thinStain * 0.022 + inkFlecks * 0.019) * (1.0 - paperCore);
+        float stain = 0.009 + thinStain * 0.025 + inkFlecks * 0.020;
         color = mix(color, uInk, stain);
 
-        float phaseA = flow.x * 0.63
-                     + sin(flow.y * 0.145 + t * 0.13) * 0.90
+        float strokeWarp = softNoise(flow * vec2(0.15, 0.081) + vec2(64.0, 13.0));
+        float phaseA = flow.x * 0.61
+                     + sin(flow.y * 0.145 + t * 0.16) * 0.96
                      + sin(flow.y * 0.041 - flow.x * 0.022) * 0.61
-                     + (broad - 0.5) * 0.45;
-        float phaseB = flow.x * 0.91
-                     + sin(flow.y * 0.187 - t * 0.09) * 0.64
+                     + (strokeWarp - 0.5) * 1.65;
+        float phaseB = flow.x * 0.88
+                     + sin(flow.y * 0.187 - t * 0.11) * 0.72
                      + sin(flow.y * 0.067 + flow.x * 0.031) * 0.29
-                     + wash * 0.58;
+                     + wash * 0.58 + (bleed - 0.5) * 0.45;
 
         // These roughly 0.12–0.23 m strokes are wide enough to survive the
         // mountain-top view. The long broken masks prevent a regular grid.
         float islands = softNoise(flow * vec2(0.28, 0.13) + vec2(4.0, 2.0));
         float fibres = softNoise(flow * vec2(1.5, 0.91));
-        float gapsA = smoothstep(0.25, 0.58, islands)
-                    * (0.38 + 0.62 * smoothstep(0.18, 0.56, fibres));
+        float gapsA = smoothstep(0.28, 0.61, islands)
+                    * smoothstep(0.16, 0.55, fibres);
         float gapsB = smoothstep(0.39, 0.69, softNoise(flow * vec2(0.41, 0.16) + 32.0))
                     * smoothstep(0.15, 0.60, softNoise(flow * vec2(1.9, 1.1) + 9.0));
         float breathA = 0.82 + 0.18 * sin(t * 0.58 + broad * 5.0);
         float breathB = 0.79 + 0.21 * sin(t * 0.71 + wash * 6.0);
-        float inkA = rippleStroke(phaseA, 0.071) * gapsA * breathA;
+        float inkA = rippleStroke(phaseA, 0.078) * gapsA * breathA;
         float inkB = rippleStroke(phaseB, 0.055) * gapsB * breathB;
-        float distanceFade = 1.0 - smoothstep(100.0, 360.0, vRiverDepth) * 0.18;
-        color = mix(color, uInk, clamp((inkA * 0.67 + inkB * 0.48) * distanceFade, 0.0, 0.73));
+        float distanceFade = 1.0 - smoothstep(100.0, 360.0, vRiverDepth) * 0.13;
+        color = mix(color, uInk, clamp((inkA * 0.73 + inkB * 0.51) * distanceFade, 0.0, 0.77));
 
-        // A few pale companion strokes join the broad paper reserves. Their
-        // strength stays constant: no sparkling, pulsing specular highlights.
-        float whiteStroke = rippleStroke(phaseA + 0.19, 0.11) * gapsA;
-        color = mix(color, uPaper, whiteStroke * 0.44 * distanceFade);
+        // Light-grey companion strokes stay inside the muted grey-blue
+        // palette. They never become white foam or sparkling highlights.
+        float paleStroke = rippleStroke(phaseA + 0.19, 0.11) * gapsA;
+        color = mix(color, uLightWash, paleStroke * 0.25 * distanceFade);
 
         // Match the world's low opposite bank. Broken mist dissolves the
         // otherwise ruler-straight join between the water and snowy land.
         float oppositeBank=67.0+sin(p.y*0.019)*6.0+sin(p.y*0.041)*2.5;
         float shoreDistance=oppositeBank-p.x;
-        float mistWidth=13.0+softNoise(p*vec2(0.08,0.13))*7.0;
+        float mistWidth=8.0+softNoise(p*vec2(0.08,0.13))*6.0;
         float shoreMist=1.0-smoothstep(0.0,mistWidth,shoreDistance);
         color=mix(color,uShoreMist,shoreMist*0.98);
 
